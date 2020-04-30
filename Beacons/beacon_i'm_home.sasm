@@ -1,0 +1,85 @@
+alarm_mask equ 128
+blink_mask equ 1792
+;sections equ 12
+
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+; push word macro
+pw macro
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+ pop b 
+ pb ALARMING_SECTIONS
+ inp b, b
+ pb sections
+ and b
+ pop b
+ snz
+ bra check_delay
+
+alarm
+ psh TICKS
+ inp b, b
+ pb alarm_mask
+ and b
+ pop b
+ skz
+ bra set_on
+ bra set_off
+ 
+check_delay
+ pb EXIT_DELAY
+ inp b, b
+ pop b
+ skz
+ bra alarm
+
+no_alarm
+ ; get armed mask
+ pb ARMED_SECTIONS
+ inp b, b
+ pb sections
+ and b
+ skz
+ bra armed
+ pop b
+ bra set_off
+
+armed
+ pb GUARD_SECTIONS
+ inp b, b
+ pb sections
+ and b
+ cmp b
+ skz
+ bra partial
+
+set_on
+ psh 1
+ ret
+ 
+set_off
+ psh 0
+ ret
+
+partial
+ psh TICKS
+ inp b, w
+ pw blink_mask
+ and w
+ pop w
+ skz
+ bra set_on
+ bra set_off

@@ -1,0 +1,226 @@
+decimate_timer equ 6
+blink_mask equ 0
+alarm_mask equ 128
+sections equ 13
+
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+; results
+off equ 0
+on equ 1
+
+section_count equ 8
+
+; remove after device.xml full support
+TICKS equ 0
+ALARM equ 23
+ARMED_SECTIONS equ 30
+ARMABLE_SECTIONS equ 33
+SECTION_TYPE_BASE equ 128
+GUARD_SECTIONS equ 33
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+pw macro ; word
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+pd macro ; dword
+ psh (($1 >> 28) & 15)
+ nib (($1 >> 24) & 15)
+ psh (($1 >> 20) & 15)
+ nib (($1 >> 16) & 15)
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; mov instruction with parameters
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+; exp instruction with parameters
+ex macro
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
+endm
+
+shift_l macro
+ dec b
+ psh $1
+ shl 1
+ swp b
+ dec b
+ snz
+ bra 2
+ swp b
+ bra -7
+ pop b
+endm
+
+; BEGIN
+ ; TOS on entry:
+ ; b: previous result
+ ;   b: ticks
+ ; store zone counter
+ pop b ; dispose previous result
+
+ticks
+ ; get ticks
+ pb TICKS
+ inp b, w
+ 
+ ; decimate timer
+ pw 1 << decimate_timer
+ div w
+ ; collapse to unsigned byte
+ ex w, b, 0
+ 
+ dup b
+ up b, 2
+ cmp b
+ 
+ ; wait for not equal 
+ snz
+ bra ticks
+ 
+ ; get alarm flag
+ pb ALARMING_SECTIONS
+ inp b, b
+ pb sections
+ and b
+ pop b
+ snz
+ bra check_zone
+
+alarm
+ ; blink according to the lsb of ticks
+ dup b
+ psh 1
+ and b
+ ret
+
+check_zone
+ pw ZONE_SECTION_BASE
+loop
+ dup w
+ inp w, b
+ dup b
+ pb 254
+ and b
+ pop b
+ snz
+ bra label
+ shift_l 1
+label
+ pb sections
+ and b
+ pop b
+ skz
+ bra check_delay ; zone to check
+ inc w
+ dup w
+ pw 4128
+ cmp w
+ skz
+ bra loop
+ pb no_alarm_dispose
+ jmp b
+ 
+check_delay
+ dup w
+ pw ZONE_SECTION_BASE
+ sub w
+ dup w
+ pw ZONE_EXITDELAY_FLAG_BASE
+ add w
+ inp w, b
+ skz
+ bra delay
+ pop b
+ pw ZONE_ENTRYDELAY_FLAG_BASE
+ add w
+ inp w, b
+ skz
+ bra delay
+ pop b
+ inc w
+ dup w
+ pw 4128
+ cmp w
+ snz
+ bra no_alarm_dispose
+ psh loop
+ jmp b
+ 
+delay
+ pop dw
+ psh TICKS
+ inp b, b
+ pb alarm_mask
+ and b
+ pop b
+ skz
+ bra set_on
+ bra set_off
+ 
+set_on
+ psh 1
+ ret
+ 
+set_off
+ psh 0
+ ret
+ 
+no_alarm_dispose
+ pop w
+no_alarm
+ ; get armed mask
+ pb ARMED_SECTIONS
+ inp b, b
+ pb sections
+ and b
+ skz
+ bra armed
+ ; no need to pop/push, TOS is already zero
+ pop b
+ psh 0
+ ret
+
+armed
+ pb GUARD_SECTIONS
+ inp b, b
+ pb sections
+ and b
+ cmp b
+ skz
+ bra partial
+
+full
+ psh on
+ ret
+
+partial
+ ; blink according to zero value
+ ; in 3 lsb of ticks
+ dup b
+ psh (1 << blink_mask) - 1
+ and b
+ snz
+ ret
+ pop b
+ bra full

@@ -1,0 +1,260 @@
+; weekly scheduled crontab (3 perouds per day variant)
+; example by ma5ter
+
+; settings
+;mo_start1_h equ 10
+;mo_start1_m equ 0
+;mo_duration1 equ 30 ; up to 12 bits
+;mo_start2_h equ 11
+;mo_start2_m equ 20
+;mo_duration2 equ 10
+;mo_start3_h equ 0
+;mo_start3_m equ 0
+;mo_duration3 equ 0
+;tu_start1_h equ 12
+;tu_start1_m equ 40
+;tu_duration1 equ 600
+;tu_start2_h equ 0
+;tu_start2_m equ 0
+;tu_duration2 equ 0
+;tu_start3_h equ 0
+;tu_start3_m equ 0
+;tu_duration3 equ 0
+;we_start1_h equ 10
+;we_start1_m equ 20
+;we_duration1 equ 30
+;we_start2_h equ 0
+;we_start2_m equ 0
+;we_duration2 equ 0
+;we_start3_h equ 0
+;we_start3_m equ 0
+;we_duration3 equ 0
+;th_start1_h equ 0
+;th_start1_m equ 0
+;th_duration1 equ 0
+;th_start2_h equ 0
+;th_start2_m equ 0
+;th_duration2 equ 0
+;th_start3_h equ 0
+;th_start3_m equ 0
+;th_duration3 equ 0
+;fr_start1_h equ 0
+;fr_start1_m equ 0
+;fr_duration1 equ 0
+;fr_start2_h equ 0
+;fr_start2_m equ 0
+;fr_duration2 equ 0
+;fr_start3_h equ 0
+;fr_start3_m equ 0
+;fr_duration3 equ 0
+;sa_start1_h equ 0
+;sa_start1_m equ 0
+;sa_duration1 equ 0
+;sa_start2_h equ 0
+;sa_start2_m equ 0
+;sa_duration2 equ 0
+;sa_start3_h equ 0
+;sa_start3_m equ 0
+;sa_duration3 equ 0
+;su_start1_h equ 0
+;su_start1_m equ 0
+;su_duration1 equ 0
+;su_start2_h equ 0
+;su_start2_m equ 0
+;su_duration2 equ 0
+;su_start3_h equ 0
+;su_start3_m equ 0
+;su_duration3 equ 0
+
+;time_zone equ 180
+
+;action equ 1
+
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+pw macro ; word
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; mov instruction with parameters
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+; exp instruction with parameters
+ex macro
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
+endm
+
+; macro to generate selector for time span
+; parameters:
+;   $1 - start hour
+;   $2 - start minute
+;   $3 - duration in minutes
+; on entry TOS contains return address
+selector macro
+ psh (($3 >> 8) & 15)
+ psh (($3 >> 4) & 15)
+ nop ; to avoid optimization of psh-nib
+ nib ($3 & 15)
+ psh $2
+ psh $1
+ psh check_time_zone
+ jmp b
+endm
+selector_size equ 8
+
+; BEGIN
+ ; dispose previous result
+ pop b
+
+ ; input weekday
+ psh RT_DAY
+ inp b, b
+ ; choose selector
+ pb selector_size * 3
+ mul b
+ ; select desired interval
+ pb day_selector
+ add b
+ 
+ ; check period 1
+ dup b
+ for b
+ ; N-flag = 0 means period match
+ skn
+ bra do_dispose_on
+ 
+ ; check period 2
+ psh selector_size
+ add b
+ dup b
+ for b
+ ; N-flag = 0 means period match
+ skn
+ bra do_dispose_on
+
+ ; check period 3
+ psh selector_size
+ add b
+ for b
+ ; N-flag = 0 means period match
+ skn
+ bra do_on
+
+do_off
+ psh ~action & 1
+ ret
+
+do_dispose_on
+ ; dispose call address
+ pop b
+do_on
+ psh action & 1
+ ret
+
+check_time_zone
+ ex b, w, 0
+ pw 60
+ mul w
+ up b, 2
+ ex b, w, 0
+ add w
+ pw time_zone
+ dup w
+ pw 32768
+ and w
+ pop w
+ skz
+ bra minus
+ 
+plus
+ sub w
+ skn
+ bra check_time_span
+ pw 1440
+ add w
+ bra check_time_span
+ 
+minus
+ sub w
+ dup w
+ pw 1440
+ sub w
+ skn
+ swp w
+ pop w
+
+; subroutine to return value for time span
+; on entry TOS contains:
+;   start hour
+;   start minute
+;   duration
+; on return N-flag contains 0 - match 1 - mismatch
+; NOTE: due to optimisation entry point should reside within 63 first addresses 
+check_time_span
+ ; get realtime day minute offset
+ psh RT_HOUR
+ inp b, w
+ pw 60
+ mul w
+ psh RT_MIN
+ inp b, w
+ add w
+ 
+ ; check start
+ swp w
+ sub w
+
+ skp
+ ; too early
+ bra check_dispose_ret
+
+ ; when comparing duration add `one` to ensure minumum duration greater than 0
+ inc w
+ cmp w
+ jmp b
+
+check_dispose_ret
+ pop dw ; dispose difference & duration
+ jmp b ; return
+
+
+; each day selector size is exactly `selector_size` bytes
+day_selector
+ selector mo_start1_h, mo_start1_m, mo_duration1
+ selector mo_start2_h, mo_start2_m, mo_duration2
+ selector mo_start3_h, mo_start3_m, mo_duration3
+ selector tu_start1_h, tu_start1_m, tu_duration1
+ selector tu_start2_h, tu_start2_m, tu_duration2
+ selector tu_start3_h, tu_start3_m, tu_duration3
+ selector we_start1_h, we_start1_m, we_duration1
+ selector we_start2_h, we_start2_m, we_duration2
+ selector we_start3_h, we_start3_m, we_duration3
+ selector th_start1_h, th_start1_m, th_duration1
+ selector th_start2_h, th_start2_m, th_duration2
+ selector th_start3_h, th_start3_m, th_duration3
+ selector fr_start1_h, fr_start1_m, fr_duration1
+ selector fr_start2_h, fr_start2_m, fr_duration2
+ selector fr_start3_h, fr_start3_m, fr_duration3
+ selector sa_start1_h, sa_start1_m, sa_duration1
+ selector sa_start2_h, sa_start2_m, sa_duration2
+ selector sa_start3_h, sa_start3_m, sa_duration3
+ selector su_start1_h, su_start1_m, su_duration1
+ selector su_start2_h, su_start2_m, su_duration2
+ selector su_start3_h, su_start3_m, su_duration3

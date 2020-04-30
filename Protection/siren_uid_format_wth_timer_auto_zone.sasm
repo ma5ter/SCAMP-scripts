@@ -1,0 +1,157 @@
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+;sections equ 12
+;timer equ 5
+mask equ 128
+;zone_num equ 3
+
+pb macro ; byte
+\tpsh (($1 >> 4) & 15)
+\tnib ($1 & 15)
+endm
+
+; push word macro
+pw macro
+\tpsh (($1 >> 12) & 15)
+\tnib (($1 >> 8) & 15)
+\tpsh (($1 >> 4) & 15)
+\tnib ($1 & 15)
+endm
+
+up macro
+\tpsh\t(((($1 & 3) | ($2 << 2)) >> 4) & 15)
+\tnib (($1 & 3) | ($2 << 2) & 15)
+\tmov
+endm
+
+;BEGIN
+
+\tpop b
+\t
+\tpsh FIRE_SECTIONS
+\tinp b, b
+\tpsh ALARMING_SECTIONS
+\tinp b, b
+\tand b
+\tpb sections
+\tand b
+\tpop b
+\tsnz
+\tbra common_alarms
+\tpop b
+\tsnz
+\tbra 4
+\tpsh 1
+\tpb set_off
+\tjmp b
+\tpsh 0
+\tup w, 1
+\tdup w
+\tpop w
+\tskz
+\tbra 2
+\tpop w
+\tbra start_timer
+\tpb check_timer
+\tjmp b
+\t
+common_alarms
+\tpb sections
+\tpsh ALARMING_SECTIONS
+\tinp b, b
+\tand b
+\tpop b
+\tskz 
+\tbra 2
+\tpop b
+\tbra set_off ; if no alarms at all
+\tpop b
+\tsnz
+\tbra 2
+\tpsh 1
+\tbra set_off
+\tpsh 1
+\tup w, 1
+\tdup w
+\tpop w
+\tskz
+\tbra check_timer
+\tpop w
+\tbra start_timer
+\t
+set_off
+\tpsh 0
+\tret
+
+start_timer
+\tpsh TIMESTAMP
+\tinp b, w
+\tpw timer
+\tpw 60
+\tmul w
+\tadd w
+\tup b, 2
+\tpop b
+\tsnz
+\tbra fire;0
+\tpsh 0
+\tpsh 1
+\tret
+\t
+check_timer
+\tdup w
+\tpsh TIMESTAMP
+\tinp b, w
+\tcmp w
+\tskp
+\tbra timeout
+\tup b, 2
+\tpop b
+\tsnz
+\tbra fire;0
+\tpsh 0
+\tpsh 1
+\tret
+\t
+timeout
+\tpop w
+\tpop b
+\tpsh 1
+\tpb set_off
+\tjmp b
+
+fire 
+\tpw 7424
+\tpb 17
+\tinp b, w
+\tpw 1
+\tsub w
+\tadd w
+\tinp w, b
+\tpsh 5
+\tcmp b
+\tskz
+\tbra not_blink
+\tbra blink
+\t
+not_blink
+\tpsh 0
+\tpsh 1
+\tret
+
+blink
+\tpsh TICKS
+\tinp b, b
+\tpb mask
+\tand b
+\tpop b
+\tpsh 0
+\tsnz
+\tbra 2
+\tpsh 0
+\tret
+\tpsh 1
+\tret

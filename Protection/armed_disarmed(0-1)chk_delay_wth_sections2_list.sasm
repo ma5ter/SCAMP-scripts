@@ -1,0 +1,46 @@
+; common TOS sizes
+b equ 0
+
+;action equ 1
+;sections equ 3
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; BEGIN
+ pop b ; dispose previous result
+
+ pb sections
+ pop b
+ snz
+ ret
+ ; get armed mask
+ pb sections
+ dup b
+ pb ARMED_SECTIONS
+ inp b, b
+ pb GUARD_SECTIONS
+ inp b, b
+ inv b
+ ior b
+ and b
+ cmp b
+ skz
+ bra set_off
+
+check_delay
+ psh EXIT_DELAY
+ inp b, b
+ pop b
+ snz
+ bra set_on
+
+set_off
+ psh ~action & 1
+ ret
+
+set_on
+ psh action & 1
+ ret

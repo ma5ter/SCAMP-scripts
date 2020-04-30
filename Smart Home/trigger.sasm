@@ -1,0 +1,28 @@
+; common TOS sizes
+b equ 0
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; BEGIN
+ pb HAS_SWITCH
+ inp b, b
+ pop b
+ skz
+ bra trigger
+ ret
+ 
+trigger
+ pop b
+ skz
+ bra set_off
+ 
+set_on
+ psh 1
+ ret
+ 
+set_off
+ psh 0
+ ret

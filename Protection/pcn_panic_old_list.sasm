@@ -1,0 +1,43 @@
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+;action equ 1
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; push word macro
+pw macro
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+check macro ;check for troubles
+ psh $1
+ inp b, b
+ pop b
+ snz
+ bra 2
+ psh set_off
+ jmp b
+endm
+
+; BEGIN
+ pop b ; dispose previous result
+
+check_troubles
+ check PANIC
+
+set_on
+ psh action & 1
+ ret
+ 
+set_off
+ psh ~action & 1
+ ret

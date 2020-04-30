@@ -1,0 +1,125 @@
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+;action equ 1
+;manual equ 0
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; push word macro
+pw macro
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+ psh manual
+ pop b
+ skz
+ bra 3
+ pop b
+ pop b
+ bra check_fire ; manual
+ pop b ; auto
+ skz
+ bra check_fire
+ pop b
+ snz
+ bra check_fire
+ 
+ 
+wait_switch
+ pb HAS_SWITCH
+ inp b, b
+ pop b
+ skz
+ bra check_fire
+ pb FIRE_SECTIONS
+ inp b, b
+ pb ALARMING_SECTIONS
+ inp b, b
+ and b
+ snz 
+ bra not_fire ; not fire
+ pb set_on ; fire
+ jmp b
+ 
+not_fire
+ pop b
+ psh 1
+ pb set_off
+ jmp b
+ 
+check_fire
+ pb FIRE_SECTIONS
+ inp b, b
+ pb ALARMING_SECTIONS
+ inp b, b
+ and b
+ snz 
+ bra check_zone ; not fire
+ pb set_on ; fire
+ jmp b
+
+check_zone
+ pw INP_ZONE_ALARM_REASON_BASE
+loop
+ dup w
+ inp w, b
+ pb 23
+ cmp b
+ snz
+ bra check_flood ; flood
+ inc w
+ dup w
+ pw 7968
+ cmp w
+ skz
+ bra loop
+ 
+check_arm
+ pop b
+ pop w
+ psh ARMED_SECTIONS
+ inp b, b
+ snz
+ bra set_on
+ psh GUARD_SECTIONS
+ inp b, b
+ cmp b
+ skz
+ bra set_on
+ psh 0
+ bra set_off
+
+check_flood
+ dup w
+ pw INP_ZONE_ALARM_REASON_BASE
+ sub w
+ pw ZONE_ALARM_FLAG_BASE
+ add w
+ inp w, b
+ skz
+ bra dispose
+ pop b
+ inc w
+ psh loop
+ jmp b
+ 
+dispose
+ pop dw
+ psh 1
+
+set_off
+ psh ~action & 1
+ ret
+ 
+set_on
+ psh action & 1
+ ret

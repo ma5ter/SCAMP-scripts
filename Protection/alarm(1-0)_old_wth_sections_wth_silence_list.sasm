@@ -1,0 +1,111 @@
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+;action equ 1
+;sections equ 13
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; push word macro
+pw macro
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+shift_l macro
+ dec b
+ psh $1
+ shl 1
+ swp b
+ dec b
+ snz
+ bra 2
+ swp b
+ bra -7
+ pop b
+endm
+
+; BEGIN
+ pop b ; dispose previous result
+
+check_troubles
+ pw ZONE_SECTION_BASE
+loop
+ dup w
+ inp w, b
+ dup b
+ pb 254
+ and b
+ pop b
+ snz
+ bra label
+ shift_l 1
+label
+ pb sections
+ pb ARMED_SECTIONS
+ inp b, b
+ pb GUARD_SECTIONS
+ inp b, b
+ inv b
+ ior b
+ and b
+ and b
+ pop b
+ skz
+ bra check_alarm ; zone to check
+ inc w
+ dup w
+ pw 4128
+ cmp w
+ snz
+ bra no_alarm_dispose
+ pb loop
+ jmp b
+ 
+check_alarm
+ dup w
+ pw ZONE_SECTION_BASE
+ sub w
+ pw ZONE_ALARM_FLAG_BASE
+ add w
+ inp w, b
+ skz
+ bra dispose
+ pop b
+ inc w
+ dup w
+ pw 4128
+ cmp w
+ snz
+ bra no_alarm_dispose
+ pb loop
+ jmp b
+
+dispose
+ pop dw
+ pb set_off
+ jmp b
+ 
+no_alarm_dispose
+ pop w
+no_alarm
+ psh PANIC
+ inp b, b
+ pop b
+ skz
+ bra set_off
+ 
+set_on
+ psh action & 1
+ ret
+ 
+set_off
+ psh ~action & 1
+ ret

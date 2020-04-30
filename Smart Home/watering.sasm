@@ -1,0 +1,98 @@
+;source_zone equ 1
+active_state equ 1 ; what to do `on` or `off` when active
+;watering_time equ 30
+;delay equ 600
+
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+; push byte macro
+pb macro
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; push word macro
+pw macro
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; exp instruction with parameters
+ex macro
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
+endm
+
+; BEGIN
+ ; dispose previous result
+ pop b
+ snz
+ bra 3
+ pb was_on
+ jmp b
+ 
+check_timer_on
+ dup dw
+ pop dw
+ snz
+ bra start_timer
+ 
+check_timer
+ dup dw
+ psh TIMESTAMP
+ inp b, dw
+ cmp dw
+ skn
+ bra do_deactivate
+ pop dw
+ bra check_detector
+ 
+start_timer
+ pop dw
+ psh TIMESTAMP
+ inp b, dw
+ pw delay
+ ex w, dw, 0
+ add dw
+ bra do_deactivate
+
+check_detector
+ pw ZONE_DETECT_FLAG_BASE + source_zone - 1
+ inp w, b
+ pop b
+ skz
+ bra do_deactivate ; wet
+ ; not wet
+ 
+detector_inactive
+ pop dw
+ pb TIMESTAMP
+ inp b, dw
+ pw watering_time
+ ex w, dw, 0
+ add dw
+ bra do_activate
+ 
+do_deactivate 
+ psh 0
+ ret
+ 
+do_activate 
+ psh 1
+ ret
+
+was_on
+ dup dw
+ pb TIMESTAMP
+ inp b, dw
+ cmp dw
+ skn
+ bra do_activate
+ pop dw
+ bra do_deactivate

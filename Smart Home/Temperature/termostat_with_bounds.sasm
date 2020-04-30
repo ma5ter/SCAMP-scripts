@@ -1,0 +1,68 @@
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+;temp_bound_up equ 30
+;temp_bound_dn equ 25
+
+;temp_zone equ 6
+
+;action equ 1
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+pw macro ; word
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+check macro ;check for troubles
+ psh $1
+ inp b, b
+ pop b
+ skz
+ bra set_off
+endm
+
+; BEGIN
+ psh action
+ xor b
+ pop b
+ snz
+ bra was_on ;was on
+ ;was off
+ pw ZONE_TEMPERATURE_BASE + temp_zone - 1 
+ inp w, b
+ pb temp_bound_dn
+ cmp b
+ snz
+ bra set_on
+ skn
+ bra set_off; zone temperature greater then bound
+ bra set_on; zone temperature less then bound
+ 
+was_on
+ pw ZONE_TEMPERATURE_BASE + temp_zone - 1 
+ inp w, b
+ pb temp_bound_up
+ cmp b
+ snz
+ bra set_off
+ skn
+ bra set_off; zone temperature greater then bound
+ ; zone temperature less then bound
+ 
+set_on
+ psh action & 1
+ ret
+ 
+set_off
+ psh ~action & 1
+ ret
+ 

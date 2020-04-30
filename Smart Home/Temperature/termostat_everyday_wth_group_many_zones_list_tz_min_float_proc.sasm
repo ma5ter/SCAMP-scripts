@@ -1,0 +1,290 @@
+; time-span based temperature control with hysteresis
+; example by ma5ter
+
+; settings
+;temp equ 25
+;def equ 26
+;from equ 14
+;to equ 13
+
+;hysteresis equ 230
+
+;zone_mask equ 1 ; max 4294967295
+
+;time_zone equ -180
+
+;action equ 1
+
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+pw macro ; word
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+pd macro ; dword
+ psh (($1 >> 28) & 15)
+ nib (($1 >> 24) & 15)
+ psh (($1 >> 20) & 15)
+ nib (($1 >> 16) & 15)
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; mov instruction with parameters
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+ex macro
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
+endm
+
+; macro to generate temperature selector for time span
+; parameters:
+;   $1 - default value
+;   $2 - value when period matched
+;   $3 - hour from (inclusive), may be greater than hour to
+;   $4 - hour to (inclusive), may be less than hour from
+; on entry TOS contains return address
+
+
+; BEGIN
+ ; input weekday
+ 
+ 
+ ; temperature selected
+ psh temp
+ psh def
+ psh to ; to
+ psh from ; from
+ pb check_timezone
+ jmp b
+ ; now we have temperatue & previous switch value in TOS
+ ;swp b
+ ; get temperature value from zone
+get_temp
+ ex b, w, 0
+ pw 10
+ mul w
+ 
+ pw 0 ;summ
+ psh 0 ;zone count to check 
+ pd zone_mask
+ psh 0
+loop 
+ inc b
+ dup b
+ psh 33
+ cmp b
+ skp
+ bra 3
+ pb calc_tmp
+ jmp b
+ up dw, 1
+ dup b
+ psh 1
+ and b
+ pop b
+ skz
+ bra zone_match ; 1
+    ; 0
+ 
+shift_mask
+ psh 2
+ ex b, dw, 0
+ div dw
+ up b, 4
+ bra loop
+ 
+zone_match
+ up b, 4
+ dup b
+ ex b, w, 0
+ pw ZONE_TEMPERATURE_BASE - 1
+ add w
+ inp w, w
+ up w, 8
+ add w 
+ up b, 7
+ inc b
+ up b, 3
+ up dw, 4
+ bra shift_mask
+ 
+calc_tmp
+ pop b
+ pop dw
+ ex b, w, 0
+ swp w
+ pw 10
+ mul w
+ swp w
+ div w
+
+ ; implement hysteresis )))
+ ;swp b
+ pw hysteresis / 10
+ up b, 6
+ psh action
+ xor b
+ pop b
+ snz
+ bra was_on ;was on
+ ;was off
+was_off
+ ; if was off we should check hysteresis loop for lower rim
+ add w
+ cmp w
+ snz
+ bra set_on
+ bra done
+was_on
+ ; if was off we should check hysteresis loop for upper rim
+ sub w
+ cmp w
+ snz
+ bra set_off
+done
+ skp
+ bra set_off
+ 
+set_on
+ psh action & 1
+ ret
+ 
+set_off
+ psh ~action & 1
+ ret
+
+check_timezone
+ ex b, w, 0
+ pw 60
+ mul w
+ up b, 2
+ ex b, w, 0
+ pw 60
+ mul w
+ pw time_zone
+ dup w
+ pw 32768
+ and w
+ pop w
+ snz
+ bra plus
+ pop w
+ pw time_zone * -1
+ psh 2
+ bra loop_m
+ 
+plus
+ sub w
+ skn
+ bra second
+ pw 1440
+ add w
+ 
+second
+ swp w
+ pw time_zone
+ sub w
+ skn
+ bra check_time_span
+ pw 1440
+ add w
+ bra check_time_span
+ 
+minus
+ pw time_zone * -1
+ up b, 2
+loop_m
+ up dw, 1
+ add w
+ dup w
+ pw 1440
+ sub w
+ skn
+ swp w
+ pop w
+ up b, 2
+ dec b
+ skz
+ bra minus
+ pop b
+; subroutine to return value for time span
+; on entry TOS contains:
+;   hour from
+;   hour to
+;   matched value
+;   default value
+; on return TOS byte will be the desired value
+; NOTE: due to optimisation entry point should reside within 63 first addresses 
+check_time_span
+ ; check if from <= to 
+
+ ; prepare check time greater or equals than 'from'
+ pb get_now
+ for b
+ swp w ; swap so that N-flag reflects the result
+
+ skn
+ bra time_continuous
+; time interval within connected days 
+time_split 
+ cmp w
+ skn
+ bra time_check_enough
+ bra time_check_to
+; time interval within one day 
+time_continuous
+ ; check time greater or equals than 'from'
+ cmp w
+ skp
+ bra time_check_enough
+time_check_to
+ ; check time less or equals than 'to'
+ pb get_now
+ for b
+ cmp w
+ ; result is flag N
+ bra check_time_span_ret
+time_check_enough
+ ; dispose unused 'to' 
+ pop w
+check_time_span_ret
+ skp
+ swp b
+ snz
+ swp b
+ ; dispose either matched or default value
+ pop b
+ pb get_temp
+ jmp b
+
+get_now
+ pb RT_HOUR
+ inp b, w
+ pw 60
+ mul w
+ pb RT_MIN
+ inp b, w
+ add w
+ up b, 2
+ jmp b
