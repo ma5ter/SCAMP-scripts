@@ -1,0 +1,103 @@
+﻿; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+; switches
+;  0 - working
+;  1 - stop
+
+;inversion equ 0   ; (param) heat - 0 / cooling - 1 (uncomment for debug)
+;temp_bound equ 24 ; (param) tempertature bound (uncomment for debug)
+;temp_zone equ 6   ; (param) zone where temperature take from (uncomment for debug)
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+pw macro ; word
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; BEGIN
+check_switch
+ swp b
+ pb HAS_SWITCH
+ inp b, b
+ pop b
+ snz
+ bra check_work_state
+ 
+get_switch
+ pop b
+ pb SWITCH
+ inp b, b
+ 
+check_work_state
+ dup b
+ pop b
+ snz
+ bra work
+ swp b
+ pop b
+ psh 0
+ ret
+ 
+work
+ swp b
+
+check_last_state
+ pop b
+ skz
+ bra was_on
+
+was_off
+ pw ZONE_TEMPERATURE_BASE + temp_zone - 1
+ inp w, b
+ psh inversion
+ pop b
+ skz
+ bra inversion_bound_off
+ pb temp_bound
+ bra f1
+inversion_bound_off
+ pb temp_bound - 1
+f1
+ cmp b
+ snz
+ bra set_on
+ skn
+ bra set_off; zone temperature greater then bound
+ bra set_on; zone temperature less then bound
+ 
+set_off
+ psh inversion & 1
+ ret
+ 
+set_on
+ psh ~inversion & 1
+ ret
+ 
+was_on
+ pw ZONE_TEMPERATURE_BASE + temp_zone - 1 
+ inp w, b
+ psh inversion
+ pop b
+ skz
+ bra inversion_bound_on
+ pw temp_bound + 1
+ bra f2
+inversion_bound_on
+ pb temp_bound
+f2
+ cmp b
+ snz
+ bra set_off
+ skn
+ bra set_off; zone temperature greater then bound
+ bra set_on ; zone temperature less then bound
+ 
