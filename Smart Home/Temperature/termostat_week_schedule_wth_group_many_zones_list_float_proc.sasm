@@ -46,46 +46,46 @@
 ;action equ 1
 
 ; common TOS sizes
-b\tequ\t0
-w\tequ\t1
-dw\tequ\t2
+b equ 0
+w equ 1
+dw equ 2
 
 
 pb macro ; byte
-\tpsh (($1 >> 4) & 15)
-\tnib ($1 & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
 endm
 
 pw macro ; word
-\tpsh (($1 >> 12) & 15)
-\tnib (($1 >> 8) & 15)
-\tpsh (($1 >> 4) & 15)
-\tnib ($1 & 15)
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
 endm
 
 pd macro ; dword
-\tpsh (($1 >> 28) & 15)
-\tnib (($1 >> 24) & 15)
-\tpsh (($1 >> 20) & 15)
-\tnib (($1 >> 16) & 15)
-\tpsh (($1 >> 12) & 15)
-\tnib (($1 >> 8) & 15)
-\tpsh (($1 >> 4) & 15)
-\tnib ($1 & 15)
+ psh (($1 >> 28) & 15)
+ nib (($1 >> 24) & 15)
+ psh (($1 >> 20) & 15)
+ nib (($1 >> 16) & 15)
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
 endm
 
 
 ; mov instruction with parameters
 up macro
-\tpsh\t(((($1 & 3) | ($2 << 2)) >> 4) & 15)
-\tnib (($1 & 3) | ($2 << 2) & 15)
-\tmov
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
 endm
 
 ex macro
-\tpsh\t($1 & 3)
-\tnib ((($3 & 1) << 3) | ($2 & 3))
-\texp
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
 endm
 
 ; macro to generate temperature selector for time span
@@ -96,174 +96,174 @@ endm
 ;   $4 - hour to (inclusive), may be less than hour from
 ; on entry TOS contains return address
 selector macro
-\tpsh\t$2
-\tpsh\t$1
-\tpsh\t$4 ; to
-\tpsh\t$3 ; from
-\tpsh ((check_timezone >> 4) & 15)
-\tnib (check_timezone & 15)
-\tjmp b
+ psh $2
+ psh $1
+ psh $4 ; to
+ psh $3 ; from
+ psh ((check_timezone >> 4) & 15)
+ nib (check_timezone & 15)
+ jmp b
 endm
 selector_size equ 7
 
 ; BEGIN
-\t; input weekday
-\t
-\tpb\tRT_DAY
-\tinp\tb, b
-\t; choose selector
-\tpb\tselector_size
-\tmul\tb
-\t; select desired temperature
-\tpb\tday_selector
-\tadd\tb
-\tfor b
-\t; temperature selected
-\t
-\t; now we have temperatue & previous switch value in TOS
-\t;swp\tb
-\t; get temperature value from zone
-\tex b, w, 0
-\tpw 10
-\tmul w
-\t
-\tpw 0 ;summ
-\tpsh 0 ;zone count to check 
-\tpd zone_mask
-\tpsh 0
+ ; input weekday
+ 
+ pb RT_DAY
+ inp b, b
+ ; choose selector
+ pb selector_size
+ mul b
+ ; select desired temperature
+ pb day_selector
+ add b
+ for b
+ ; temperature selected
+ 
+ ; now we have temperatue & previous switch value in TOS
+ ;swp b
+ ; get temperature value from zone
+ ex b, w, 0
+ pw 10
+ mul w
+ 
+ pw 0 ;summ
+ psh 0 ;zone count to check 
+ pd zone_mask
+ psh 0
 loop 
-\tinc b
-\tdup b
-\tpsh 33
-\tcmp b
-\tskp
-\tbra 3
-\tpb calc_tmp
-\tjmp b
-\tup dw, 1
-\tdup b
-\tpsh 1
-\tand b
-\tpop b
-\tskz
-\tbra zone_match ; 1
+ inc b
+ dup b
+ psh 33
+ cmp b
+ skp
+ bra 3
+ pb calc_tmp
+ jmp b
+ up dw, 1
+ dup b
+ psh 1
+ and b
+ pop b
+ skz
+ bra zone_match ; 1
     ; 0
-\t
+ 
 shift_mask
-\tpsh 2
-\tex b, dw, 0
-\tdiv dw
-\tup b, 4
-\tbra loop
-\t
+ psh 2
+ ex b, dw, 0
+ div dw
+ up b, 4
+ bra loop
+ 
 zone_match
-\tup b, 4
-\tdup b
-\tex b, w, 0
-\tpw ZONE_TEMPERATURE_BASE - 1
-\tadd w
-\tinp w, w
-\tup w, 8
-\tadd w
-\tup b, 7
-\tinc b
-\tup b, 3
-\tup dw, 4
-\tbra shift_mask
-\t
+ up b, 4
+ dup b
+ ex b, w, 0
+ pw ZONE_TEMPERATURE_BASE - 1
+ add w
+ inp w, w
+ up w, 8
+ add w
+ up b, 7
+ inc b
+ up b, 3
+ up dw, 4
+ bra shift_mask
+ 
 calc_tmp
-\tpop b
-\tpop dw
-\tex b, w, 0
-\tswp w
-\tpw 10
-\tmul w
-\tswp w
-\tdiv w
+ pop b
+ pop dw
+ ex b, w, 0
+ swp w
+ pw 10
+ mul w
+ swp w
+ div w
 
-\t; implement hysteresis )))
-\t;swp\tb
-\tpw\thysteresis / 10
-\tup b, 6
-\tpsh action
-\txor b
-\tpop b
-\tsnz
-\tbra was_on ;was on
-\t;was off
+ ; implement hysteresis )))
+ ;swp b
+ pw hysteresis / 10
+ up b, 6
+ psh action
+ xor b
+ pop b
+ snz
+ bra was_on ;was on
+ ;was off
 was_off
-\t; if was off we should check hysteresis loop for lower rim
-\tadd\tw
-\tcmp\tw
-\tsnz
-\tbra set_on
-\tbra done
+ ; if was off we should check hysteresis loop for lower rim
+ add w
+ cmp w
+ snz
+ bra set_on
+ bra done
 was_on
-\t; if was off we should check hysteresis loop for upper rim
-\tsub\tw
-\tcmp\tw
-\tsnz
-\tbra set_off
+ ; if was off we should check hysteresis loop for upper rim
+ sub w
+ cmp w
+ snz
+ bra set_off
 done
-\tskp
-\tbra set_off
-\t
+ skp
+ bra set_off
+ 
 set_on
-\tpsh action & 1
-\tret
-\t
+ psh action & 1
+ ret
+ 
 set_off
-\tpsh ~action & 1
-\tret
+ psh ~action & 1
+ ret
 
 check_timezone
-\tpb time_zone
-\tdup b
-\tshl 1
-\tskn
-\tbra plus
-\tpop w
-\tpb time_zone * -1
-\tpsh 2
-\tbra loop_m
-\t
+ pb time_zone
+ dup b
+ shl 1
+ skn
+ bra plus
+ pop w
+ pb time_zone * -1
+ psh 2
+ bra loop_m
+ 
 plus
-\tpop b
-\tsub b
-\tskn
-\tbra second
-\tpsh 24
-\tadd b
-\t
+ pop b
+ sub b
+ skn
+ bra second
+ psh 24
+ add b
+ 
 second
-\tswp b
-\tpb time_zone
-\tsub b
-\tskn
-\tbra check_time_span
-\tpsh 24
-\tadd b
-\tbra check_time_span
-\t
+ swp b
+ pb time_zone
+ sub b
+ skn
+ bra check_time_span
+ psh 24
+ add b
+ bra check_time_span
+ 
 minus
-\tpb time_zone * -1
-\tswp b
+ pb time_zone * -1
+ swp b
 loop_m
-\tup w, 1
-\tadd b
-\tdup b
-\tpb 24
-\tsub b
-\tskn
-\tswp b
-\tpop b
-\tup b, 2
-\tup b, 2
-\tdec b
-\tskz
-\tbra minus
-\tpop b
-\t
+ up w, 1
+ add b
+ dup b
+ pb 24
+ sub b
+ skn
+ swp b
+ pop b
+ up b, 2
+ up b, 2
+ dec b
+ skz
+ bra minus
+ pop b
+ 
 ; subroutine to return value for time span
 ; on entry TOS contains:
 ;   hour from
@@ -273,54 +273,54 @@ loop_m
 ; on return TOS byte will be the desired value
 ; NOTE: due to optimisation entry point should reside within 63 first addresses 
 check_time_span
-\t; check if from <= to 
-\tswp b
-\t; prepare check time greater or equals than 'from'
-\tpb\tRT_HOUR
-\tinp\tb, b
-\tswp\tb ; swap so that N-flag reflects the result
+ ; check if from <= to 
+ swp b
+ ; prepare check time greater or equals than 'from'
+ pb RT_HOUR
+ inp b, b
+ swp b ; swap so that N-flag reflects the result
 
-\tskn
-\tbra\ttime_continuous
-; time interval within connected days\t
-time_split\t
-\tcmp\tb
-\tskn
-\tbra time_check_enough
-\tbra\ttime_check_to
-; time interval within one day\t
+ skn
+ bra time_continuous
+; time interval within connected days 
+time_split 
+ cmp b
+ skn
+ bra time_check_enough
+ bra time_check_to
+; time interval within one day 
 time_continuous
-\t; check time greater or equals than 'from'
-\tcmp\tb
-\tskp
-\tbra\ttime_check_enough
+ ; check time greater or equals than 'from'
+ cmp b
+ skp
+ bra time_check_enough
 time_check_to
-\t; check time less or equals than 'to'
-\tpb\tRT_HOUR
-\tinp\tb, b
-\tcmp\tb
-\t; result is flag N
-\tbra\tcheck_time_span_ret
+ ; check time less or equals than 'to'
+ pb RT_HOUR
+ inp b, b
+ cmp b
+ ; result is flag N
+ bra check_time_span_ret
 time_check_enough
-\t; dispose unused 'to' 
-\tpop\tb
+ ; dispose unused 'to' 
+ pop b
 check_time_span_ret
-\tskp
-\tswp\tb
-\tsnz
-\tswp b
-\t; dispose either matched or default value
-\tpop\tb
-\tswp\tb
-\tjmp\tb
+ skp
+ swp b
+ snz
+ swp b
+ ; dispose either matched or default value
+ pop b
+ swp b
+ jmp b
 
 
 ; each day selector size is exactly `selector_size` bytes
 day_selector
-\tselector mo_def, mo_temp, mo_from, mo_to 
-\tselector tu_def, tu_temp, tu_from, tu_to 
-\tselector we_def, we_temp, we_from, we_to 
-\tselector th_def, th_temp, th_from, th_to 
-\tselector fr_def, fr_temp, fr_from, fr_to 
-\tselector sa_def, sa_temp, sa_from, sa_to 
-\tselector su_def, su_temp, su_from, su_to
+ selector mo_def, mo_temp, mo_from, mo_to 
+ selector tu_def, tu_temp, tu_from, tu_to 
+ selector we_def, we_temp, we_from, we_to 
+ selector th_def, th_temp, th_from, th_to 
+ selector fr_def, fr_temp, fr_from, fr_to 
+ selector sa_def, sa_temp, sa_from, sa_to 
+ selector su_def, su_temp, su_from, su_to
