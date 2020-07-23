@@ -25,8 +25,10 @@ endm
  bra 3
  pop b
  pop b
- bra check_fire ; manual
- pop b ; auto
+ bra check_fire ; auto
+ psh action ; manual
+ xor b
+ pop b
  skz
  bra check_fire
  pop b
