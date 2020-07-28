@@ -1,0 +1,159 @@
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+;source_zone equ 1 ; (param) (uncomment for debug) zone to detect from
+;delay_to_off equ 45 ; (param) (uncomment for debug) delay in seconds
+
+; push byte macro
+pb macro
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; push word macro
+pw macro
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; exp instruction with parameters
+ex macro
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
+endm
+
+; mov instruction with parameters
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+; BEGIN
+ ; dispose previous result
+ ; pop b
+ 
+check_switch
+ pb HAS_SWITCH
+ inp b, b
+ pop b
+ snz
+ bra check_state ; continue
+ pb change_state ; has switch
+ jmp b
+ 
+check_state
+ swp b
+ dup b
+ pop b
+ snz
+ bra check_detector ; worked
+ swp b
+ pop b
+ pb set_off ; stopped
+ jmp b
+ 
+check_detector
+ pw ZONE_DETECT_FLAG_BASE + source_zone - 1
+ inp w, b
+ pop b
+ skz
+ bra detector_active
+
+detector_inactive
+ up b, 2
+ pop b
+ snz
+ bra not_detect
+ swp b
+ pop b
+ skz
+ bra start_timer ; was on, check timer
+ pb check_timer ; was off
+ jmp b
+
+not_detect
+ swp b
+ pop b
+ snz
+ bra continue ; was off
+ pb check_timer ; was on, check timer
+ jmp b
+
+detector_active
+ up dw, 3
+ pop dw
+ up b, 2
+ pop b
+ swp b
+ pop b
+ psh 1
+ swp b
+ bra set_on
+ 
+set_off
+ psh 0
+ ret
+ 
+start_timer
+ pb TIMESTAMP
+ inp b, dw
+ pw delay_to_off
+ ex w, dw, 0
+ add dw
+ up b, 4
+ psh 0
+ swp b
+ bra set_on
+ 
+continue
+ swp b
+ pop b
+ psh 0
+ swp b
+ bra set_off
+ 
+not_time
+ psh 0
+ up b, 5
+
+set_on 
+ psh 1
+ ret
+
+check_timer
+ up dw, 1
+ dup dw
+ pb TIMESTAMP
+ inp b, dw
+ cmp dw
+ skn
+ bra not_time
+ pop dw
+ pb set_off
+ jmp b
+
+change_state
+ swp b
+ pop b
+ pb SWITCH
+ inp b, b
+ pop b
+ snz
+ bra set_work ; set work
+ pop w ; set stop
+ pop dw
+ psh 1
+ pb set_off
+ jmp b
+ 
+set_work
+ psh 0
+ swp b
+ pb check_state
+ jmp b
