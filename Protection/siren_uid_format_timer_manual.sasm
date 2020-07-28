@@ -1,0 +1,212 @@
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+;sections equ 3
+;timer equ 5
+mask equ 128
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; push word macro
+pw macro
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+;BEGIN
+ 
+ pb HAS_SWITCH ; was off
+ inp b, b
+ pop b
+ snz
+ bra check_state ; no switch
+ ; switch
+ 
+change_state
+ up b, 2
+ pop b
+ skz
+ bra dispose_prev ; state was off
+ ; state was on 
+ 
+state_was_on
+ pop dw
+ psh 1
+ psh 0
+ pb set_off
+ jmp b
+ 
+check_state
+ up b, 2
+ pop b
+ snz
+ bra dispose_prev ; state on
+ psh 1 ; state off
+ psh 0
+ pb set_off
+ jmp b
+ 
+dispose_prev
+ pop b
+ 
+check_fire_alarm
+ psh FIRE_SECTIONS
+ inp b, b
+ psh ALARMING_SECTIONS
+ inp b, b
+ and b
+ pb sections
+ and b
+ pop b
+ snz
+ bra common_alarms
+ pop b
+ snz
+ bra 5
+ psh 0
+ psh 1
+ pb set_off
+ jmp b
+ psh 0
+ up w, 1
+ dup w
+ pop w
+ skz
+ bra go_to_check_timer
+ pop w
+ pb start_timer
+ jmp b
+
+go_to_check_timer
+ pb check_timer
+ jmp b
+ 
+common_alarms
+ pb sections
+ pb GUARD_SECTIONS
+ inp b, b
+ and b
+ psh ALARMING_SECTIONS
+ inp b, b
+ dup b
+ pb sections
+ and b
+ pop b
+ snz
+ bra no_alarms
+ cmp b
+ snz
+ bra full; full
+ 
+no_alarms
+ pop b
+part
+ pop w
+ bra set_off ; if no alarms at all
+ 
+full
+ pop b
+ snz
+ bra 3
+ psh 0
+ psh 1
+ bra set_off
+ psh 1
+ up w, 1
+ dup w
+ pop w
+ skz
+ bra check_timer
+ pop w
+ bra start_timer
+ 
+set_off
+ psh 0
+ ret
+ 
+start_timer
+ psh TIMESTAMP
+ inp b, w
+ pw timer
+ pw 60
+ mul w
+ add w
+ up b, 2
+ pop b
+ snz
+ bra fire;0
+ psh 0
+ psh 0
+ psh 1
+ ret
+ 
+check_timer
+ dup w
+ psh TIMESTAMP
+ inp b, w
+ cmp w
+ skp
+ bra timeout
+ up b, 2
+ pop b
+ snz
+ bra fire;0
+ psh 0
+ psh 0
+ psh 1
+ ret
+ 
+timeout
+ pop w
+ pop b
+ psh 0
+ psh 1
+ pb set_off
+ jmp b
+ 
+fire 
+ pw 7424
+ pb 17
+ inp b, w
+ pw 1
+ sub w
+ add w
+ inp w, b
+ psh 5
+ cmp b
+ snz
+ bra blink
+ 
+not_blink
+ psh 0
+ psh 0
+ psh 1
+ ret
+ 
+blink
+ psh TICKS
+ inp b, b
+ pb mask
+ and b
+ pop b
+ psh 0
+ psh 0
+ snz
+ bra 2
+ psh 0
+ ret
+ psh 1
+ ret
