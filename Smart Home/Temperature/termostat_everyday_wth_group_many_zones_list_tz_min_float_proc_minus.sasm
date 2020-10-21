@@ -239,8 +239,10 @@ loop_m
 ; on return TOS byte will be the desired value
 ; NOTE: due to optimisation entry point should reside within 63 first addresses 
 check_time_span
- ; check if from <= to 
-
+; check if from <= to 
+ dup dw
+ cmp w
+ 
  ; prepare check time greater or equals than 'from'
  pb get_now
  for b
