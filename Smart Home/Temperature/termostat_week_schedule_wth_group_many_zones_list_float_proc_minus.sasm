@@ -235,6 +235,8 @@ set_off
 check_time_span
  ; check if from <= to 
  ;swp b
+ dup w
+ cmp b
  ; prepare check time greater or equals than 'from'
  pb RT_HOUR
  inp b, b
