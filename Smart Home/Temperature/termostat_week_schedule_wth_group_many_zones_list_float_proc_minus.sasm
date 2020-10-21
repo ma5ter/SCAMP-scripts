@@ -269,8 +269,6 @@ time_check_enough
 check_time_span_ret
  skp
  swp b
- snz
- swp b
  ; dispose either matched or default value
  pop b
  swp b
