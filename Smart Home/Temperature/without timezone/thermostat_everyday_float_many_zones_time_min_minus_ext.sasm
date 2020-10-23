@@ -2,15 +2,15 @@
 ; example by ma5ter
 
 ; parameters
-temp equ -20
-def equ 20
-from equ 21
-to equ 5
+;temp equ -20
+;def equ 20
+;from equ 21
+;to equ 5
 
-hysteresis equ 100
-zone_mask equ 3 ; max 4294967295
-ext_source equ 1  ; (param) is it extended temperature source
-action equ 1
+;hysteresis equ 100
+;zone_mask equ 3 ; max 4294967295
+;ext_source equ 1  ; (param) is it extended temperature source
+;action equ 1
 
 ; constants
 to_ext equ 256 
