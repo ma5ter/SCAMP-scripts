@@ -3,12 +3,16 @@ b equ 0
 w equ 1
 dw equ 2
 
+; parameters
 ;temp_bound_up equ 30
 ;temp_bound_dn equ 25
-
 ;temp_zone equ 6
-
+;ext_source equ 1  ; (param) is it extended temperature source
 ;action equ 1
+
+; constants
+to_ext equ 256
+
 
 pb macro ; byte
  psh (($1 >> 4) & 15)
@@ -38,8 +42,19 @@ endm
  bra was_on ;was on
  ;was off
  pw ZONE_TEMPERATURE_BASE + temp_zone - 1 
+ psh ext_source
+ pop b
+ snz
+ bra n1
+ pw to_ext
+ add w
+n1
  inp w, b
+ pb 128
+ add b
  pb temp_bound_dn
+ pb 128
+ add b
  cmp b
  snz
  bra set_on
@@ -49,8 +64,19 @@ endm
  
 was_on
  pw ZONE_TEMPERATURE_BASE + temp_zone - 1 
+ psh ext_source
+ pop b
+ snz
+ bra n2
+ pw to_ext
+ add w
+n2
  inp w, b
+ pb 128
+ add b
  pb temp_bound_up
+ pb 128
+ add b
  cmp b
  snz
  bra set_off
