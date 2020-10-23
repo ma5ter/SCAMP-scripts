@@ -1,0 +1,149 @@
+; daily crontab (N perouds per day variant)
+; example by ma5ter
+
+; parameters
+match_state equ 1 ; what to do `on` or `off` when period matched
+
+start1_h equ 23
+start1_m equ 0
+duration1 equ 300 ; up to 12 bits
+
+; variables
+periods equ 1 ; add more if needed, don't forget to extend selectors 
+
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+pw macro ; word
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; mov instruction with parameters
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+; exp instruction with parameters
+ex macro
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
+endm
+
+; macro to generate selector for time span
+; parameters:
+;   $1 - start hour
+;   $2 - start minute
+;   $3 - duration in minutes
+; on entry TOS contains return address
+selector macro
+ psh (($3 >> 8) & 15)
+ psh (($3 >> 4) & 15)
+ nop ; to avoid optimization of psh-nib
+ nib ($3 & 15)
+ psh $2
+ psh $1
+ psh check_time_span
+ jmp b
+endm
+selector_size equ 8
+
+; BEGIN
+ ; dispose previous result
+ pop b
+
+ ; iterate periods
+ pb periods
+loop
+ dec b
+ skp
+ bra do_off
+
+ dup b
+ pb selector_size
+ mul b
+ pb day_selector
+ add b
+ for b
+ ; N-flag = 0 means period match
+ skp
+ bra loop
+
+do_on
+ ; dispose counter
+ pop b
+ psh match_state & 1
+ ret
+
+do_off
+ ; dispose counter
+ pop b
+ psh ~match_state & 1 
+ ret
+ 
+; subroutine to return value for time span
+; on entry TOS contains:
+;   start hour
+;   start minute
+;   duration
+; on return N-flag contains 0 - match 1 - mismatch
+; NOTE: due to optimisation entry point should reside within 63 first addresses 
+check_time_span
+ ex b, w, 0
+ pw 60
+ mul w
+ up	b, 2
+ ex b, w, 0
+ add w
+ 
+ ; get realtime day minute offset
+ pb RT_HOUR
+ inp b, w
+ pw 60
+ mul w
+ pb RT_MIN
+ inp b, w
+ add w
+ 
+ ; check start
+ dup dw
+ swp w
+ cmp w
+ skn
+ bra standart
+ pw 1440
+ add w
+ 
+standart
+ swp w
+ sub w
+
+ skp
+ ; too early
+ bra check_dispose_ret
+
+ ; when comparing duration add `one` to ensure minumum duration greater than 0
+ inc w
+ cmp w
+ jmp b
+
+check_dispose_ret
+ pop dw ; dispose difference & duration
+ jmp b ; return
+
+; each day selector size is exactly `selector_size` bytes
+day_selector
+ selector start1_h, start1_m, duration1
+ ; add more if needed 
