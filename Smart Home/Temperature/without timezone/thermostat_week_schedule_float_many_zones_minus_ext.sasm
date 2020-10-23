@@ -2,45 +2,45 @@
 ; example by ma5ter
 
 ; parameters
-mo_temp equ 23
-mo_def equ 18
-mo_from equ 8
-mo_to equ 16
+;mo_temp equ 23
+;mo_def equ 18
+;mo_from equ 8
+;mo_to equ 16
 
-tu_temp equ 23
-tu_def equ 18
-tu_from equ 8
-tu_to equ 16
+;tu_temp equ 23
+;tu_def equ 18
+;tu_from equ 8
+;tu_to equ 16
 
-we_temp equ 30
-we_def equ 5
-we_from equ 6
-we_to equ 14
+;we_temp equ 30
+;we_def equ 5
+;we_from equ 6
+;we_to equ 14
 
-th_temp equ 23
-th_def equ 18
-th_from equ 8
-th_to equ 16
+;th_temp equ 23
+;th_def equ 18
+;th_from equ 8
+;th_to equ 16
 
-fr_temp equ 23
-fr_def equ 18
-fr_from equ 8
-fr_to equ 16
+;fr_temp equ 23
+;fr_def equ 18
+;fr_from equ 8
+;fr_to equ 16
 
-sa_temp equ 23
-sa_def equ 18
-sa_from equ 8
-sa_to equ 16
+;sa_temp equ 23
+;sa_def equ 18
+;sa_from equ 8
+;sa_to equ 16
 
-su_temp equ 23
-su_def equ 18
-su_from equ 8
-su_to equ 16
+;su_temp equ 23
+;su_def equ 18
+;su_from equ 8
+;su_to equ 16
 
-hysteresis equ 150
-zone_mask equ 1 ; max 4294967295
-ext_source equ 1  ; (param) is it extended temperature source
-action equ 1
+;hysteresis equ 150
+;zone_mask equ 1 ; max 4294967295
+;ext_source equ 1  ; (param) is it extended temperature source
+;action equ 1
 
 ; constants
 to_ext equ 256 
