@@ -1,4 +1,4 @@
-﻿; common TOS sizes
+; common TOS sizes
 b equ 0
 w equ 1
 dw equ 2
@@ -7,9 +7,14 @@ dw equ 2
 ;  0 - working
 ;  1 - stop
 
+; parameters
 ;inversion equ 0   ; (param) heat - 0 / cooling - 1 (uncomment for debug)
-;temp_bound equ 24 ; (param) tempertature bound (uncomment for debug)
+;temp_bound equ 30; (param) tempertature bound (uncomment for debug)
 ;temp_zone equ 6   ; (param) zone where temperature take from (uncomment for debug)
+;ext_source equ 0  ; (param) extended temperature source
+
+; constants
+to_ext equ 256
 
 pb macro ; byte
  psh (($1 >> 4) & 15)
@@ -52,20 +57,31 @@ work
 
 check_last_state
  pop b
- skz
- bra was_on
+ snz
+ bra was_off
+ pb was_on
+ jmp b
 
 was_off
  pw ZONE_TEMPERATURE_BASE + temp_zone - 1
+ psh ext_source
+ pop b
+ snz
+ bra n1
+ pw to_ext
+ add w
+n1
  inp w, b
+ pb 127
+ add b
  psh inversion
  pop b
  skz
  bra inversion_bound_off
- pb temp_bound
+ pb temp_bound + 127
  bra f1
 inversion_bound_off
- pb temp_bound - 1
+ pb temp_bound + 126
 f1
  cmp b
  snz
@@ -84,15 +100,24 @@ set_on
  
 was_on
  pw ZONE_TEMPERATURE_BASE + temp_zone - 1 
+ psh ext_source
+ pop b
+ snz
+ bra n2
+ pw to_ext
+ add w
+n2
  inp w, b
+ pb 127
+ add b
  psh inversion
  pop b
  skz
  bra inversion_bound_on
- pw temp_bound + 1
+ pb temp_bound + 128
  bra f2
 inversion_bound_on
- pb temp_bound
+ pb temp_bound + 127
 f2
  cmp b
  snz
