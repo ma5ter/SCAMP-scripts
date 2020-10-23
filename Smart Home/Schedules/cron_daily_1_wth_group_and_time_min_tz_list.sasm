@@ -6,11 +6,11 @@
 
 periods equ 1 ; add more if needed, don't forget to extend selectors 
 
-;start1_h equ 10
+;start1_h equ 23
 ;start1_m equ 0
-;duration1 equ 30 ; up to 12 bits
+;duration1 equ 300 ; up to 12 bits
 
-;time_zone equ 180
+;time_zone equ 60
 
 ; common TOS sizes
 b equ 0
@@ -147,6 +147,15 @@ check_time_span
  add w
  
  ; check start
+ dup dw
+ swp w
+ cmp w
+ skn
+ bra standart
+ pw 1440
+ add w
+ 
+standart
  swp w
  sub w
 
