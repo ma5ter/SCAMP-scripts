@@ -1,0 +1,269 @@
+; parameters
+;mo_temp_up equ 0
+;mo_temp_dn equ 0
+;mo_temp_def_up equ 0
+;mo_temp_def_dn equ 0
+;mo_from equ 0
+;mo_to equ 0
+;
+;tu_temp_up equ 23
+;tu_temp_dn equ 21
+;tu_temp_def_up equ 12
+;tu_temp_def_dn equ 23
+;tu_from equ 8
+;tu_to equ 16
+;
+;we_temp_up equ 23
+;we_temp_dn equ 21
+;we_temp_def_up equ 15
+;we_temp_def_dn equ 12
+;we_from equ 22
+;we_to equ 5
+;
+;th_temp_up equ 23
+;th_temp_dn equ 21
+;th_temp_def_up equ 20
+;th_temp_def_dn equ 12
+;th_from equ 8
+;th_to equ 16
+;
+;fr_temp_up equ 23
+;fr_temp_dn equ 21
+;fr_temp_def_up equ 20
+;fr_temp_def_dn equ 12
+;fr_from equ 8
+;fr_to equ 16
+;
+;sa_temp_up equ 23
+;sa_temp_dn equ 21
+;sa_temp_def_up equ 20
+;sa_temp_def_dn equ 12
+;sa_from equ 8
+;sa_to equ 16
+;
+;su_temp_up equ 23
+;su_temp_dn equ 21
+;su_temp_def_up equ 20
+;su_temp_def_dn equ 12
+;su_from equ 8
+;su_to equ 16
+;
+;temp_source_zone equ 3
+;action equ 1
+;ext_source equ 0  ; (param) extended temperature source
+
+; constants
+to_ext equ 256
+
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+pw macro ; word
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; mov instruction with parameters
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+ex macro
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
+endm
+
+; macro to generate temperature selector for time span
+; parameters:
+;   $1 - default_up value
+;   $2 - default_dn value
+;   $3 - value_up when period matched
+;   $4 - value_dn when period matched
+;   $5 - hour from (inclusive), may be greater than hour to
+;   $6 - hour to (inclusive), may be less than hour from
+; on entry TOS contains return address
+selector macro
+ psh $3
+ psh $4
+ psh $1
+ psh $2
+ psh $6 ; to
+ psh $5 ; from
+ psh go_to_check_ts
+ jmp b
+endm
+selector_size equ 8
+
+; BEGIN
+
+ ; input weekday
+ pb RT_DAY
+ inp b, b
+ ; choose selector
+ pb selector_size
+ mul b
+ ; select desired temperature
+ pb day_selector
+ add b
+ for b
+ ; temperature selected
+ 
+ ; now we have temperatue & previous switch value in TOS
+ ;swp b
+ ;up b, 2
+ ; get temperature value from zone
+ pb 128
+ add b
+ swp b
+ pb 128
+ add b
+ swp b
+ dup w
+ cmp b
+ skz
+ bra 3
+ pb is_equal
+ for b
+ dup w
+ cmp b
+ skp
+ swp b
+ pw ZONE_TEMPERATURE_BASE + temp_source_zone - 1
+ psh ext_source
+ pop b
+ snz
+ bra n1
+ pw to_ext
+ add w
+n1
+ inp w, b
+ pb 128
+ add b
+ up b, 3
+ psh action
+ xor b
+ pop b
+ snz
+ bra was_on; was on
+ bra was_off;was off
+ 
+go_to_check_ts
+ bra check_time_span
+ 
+was_off
+ ; if was off we should check hysteresis loop for lower rim
+ swp b
+ cmp b
+ snz
+ bra set_on
+ skn
+ bra set_off; zone temperature greater then bound
+ bra set_on; zone temperature less then bound
+ 
+was_on
+ ; if was off we should check hysteresis loop for upper rim
+ up b, 2
+ cmp b
+ snz
+ bra set_off
+ skn
+ bra set_off; zone temperature greater then bound
+ ; zone temperature less then bound
+
+set_on
+ pop b
+ psh action & 1
+ ret
+ 
+set_off
+ pop b
+ psh ~action & 1
+ ret
+ 
+is_equal
+ swp b
+ psh 1
+ sub b
+ swp b
+ jmp b
+
+; subroutine to return value for time span
+; on entry TOS contains:
+;   hour from
+;   hour to
+;   matched value
+;   default value
+; on return TOS byte will be the desired value
+; NOTE: due to optimisation entry point should reside within 63 first addresses 
+check_time_span
+ ; check if from <= to 
+ dup w
+ cmp b
+ 
+ ; prepare check time greater or equals than 'from'
+ pb RT_HOUR
+ inp b, b
+ swp b ; swap so that N-flag reflects the result
+
+ skn
+ bra time_continuous
+; time interval within connected days 
+time_split 
+ cmp b
+ skn
+ bra time_check_enough
+ bra time_check_to
+; time interval within one day 
+time_continuous
+ ; check time greater or equals than 'from'
+ cmp b
+ skp
+ bra time_check_enough
+time_check_to
+ ; check time less or equals than 'to'
+ pb RT_HOUR
+ inp b, b
+ cmp b
+ ; result is flag N
+ bra check_time_span_ret
+time_check_enough
+ ; dispose unused 'to'
+ pop b
+check_time_span_ret
+ skn
+ bra check_equal
+ up b, 3
+ up b, 3
+check_equal
+ skz
+ bra disp
+ up b, 3
+ up b, 3
+disp
+ ; dispose either matched or default value
+ pop w
+ up b, 2
+ jmp b
+
+
+; each day selector size is exactly `selector_size` bytes
+day_selector
+ selector mo_temp_def_up, mo_temp_def_dn, mo_temp_up, mo_temp_dn, mo_from, mo_to 
+ selector tu_temp_def_up, tu_temp_def_dn, tu_temp_up, tu_temp_dn, tu_from, tu_to 
+ selector we_temp_def_up, we_temp_def_dn, we_temp_up, we_temp_dn, we_from, we_to 
+ selector th_temp_def_up, th_temp_def_dn, th_temp_up, th_temp_dn, th_from, th_to 
+ selector fr_temp_def_up, fr_temp_def_dn, fr_temp_up, fr_temp_dn, fr_from, fr_to 
+ selector sa_temp_def_up, sa_temp_def_dn, sa_temp_up, sa_temp_dn, sa_from, sa_to 
+ selector su_temp_def_up, su_temp_def_dn, su_temp_up, su_temp_dn, su_from, su_to 
