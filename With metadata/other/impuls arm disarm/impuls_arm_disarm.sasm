@@ -1,0 +1,107 @@
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+timer equ 5 ; (param) impuls duration
+action equ 1 ; (param) active state
+sections equ 3 ; (param) mask of monitored sections
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; push word macro
+pw macro
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; exp instruction with parameters
+ex macro
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
+endm
+
+; mov instruction with parameters
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+; stack template if state is active
+; - last state 1b
+; - end time 4b
+; - last armed sections 1b
+
+; stack template if state is inactive
+; - last state 1b
+; - last armed sections 1b
+
+; BEGIN
+ ; pop last state and check it
+ ; if last state - active - check time
+ ; else - check armed sections
+ psh action
+ xor b
+ pop b
+ skz
+ bra check_arm
+ 
+check_time
+ ; duplicate 'end time'
+ dup dw
+ ; get current timestamp
+ pb TIMESTAMP
+ inp b, dw
+ ; compare current time and 'end time'
+ ; if current time is greater - dispose and set off
+ ; else - continue
+ cmp dw
+ skn
+ bra set_on ; +
+ pop dw ; - dispose 'end time'
+ bra set_off
+
+check_arm
+ ; get mask of armed sections and duplicate it
+ pb ARMED_SECTIONS
+ inp b, b
+ dup b
+ pb sections 
+ and b ; find mask of armed monitored sections
+ up b, 2 ; bring 'last armed sections' to top
+ ; compare 'last armed sections' and 'armed monitored sections'
+ ; if equal - nothing has changed, continue
+ ; else - start timer and set on
+ cmp b
+ skz
+ bra start_timer ; 1 state changed
+ pb sections ; 0 same
+ and b ; find mask of armed monitored sections
+ bra set_off
+ 
+start_timer
+ pb sections
+ and b ; find mask of armed monitored sections
+ ; get current timestamp
+ psh TIMESTAMP
+ inp b, dw
+ ; push 'duration - 1' to stack
+ pw timer - 1
+ ex w, dw, 1
+ add dw ; calculate 'end time'
+ bra set_on
+ 
+set_off
+ psh ~action & 1
+ ret
+ 
+set_on
+ psh action & 1
+ ret

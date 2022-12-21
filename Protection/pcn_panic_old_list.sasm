@@ -3,7 +3,7 @@ b equ 0
 w equ 1
 dw equ 2
 
-;action equ 1
+action equ 1 ; (param) what to do `on` or `off` when active
 
 pb macro ; byte
  psh (($1 >> 4) & 15)
@@ -18,21 +18,25 @@ pw macro
  nib ($1 & 15)
 endm
 
-check macro ;check for troubles
- psh $1
+;check for troubles macro
+check macro
+ psh $1 ; push trouble address
+ ; check for a trouble
+ ; if has - set off, else return from macro
  inp b, b
  pop b
  snz
  bra 2
  psh set_off
- jmp b
+ jmp b ; return from macro
 endm
 
 ; BEGIN
  pop b ; dispose previous result
 
+; check for troubles
 check_troubles
- check PANIC
+ check PANIC ; check if device has panic trouble
 
 set_on
  psh action & 1

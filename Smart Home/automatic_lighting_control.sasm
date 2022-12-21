@@ -35,10 +35,10 @@ up macro
 endm
 
 ; BEGIN
- ; dispose previous result
- ; pop b
- 
 check_switch
+ ; check switch
+ ; if has - change 'work flag'
+ ; else - check 'work flag'
  pb HAS_SWITCH
  inp b, b
  pop b
@@ -48,29 +48,41 @@ check_switch
  jmp b
  
 check_state
- swp b
- dup b
+ swp b ; bring 'work flag' to top
+ dup b ; save 'work flag'
+ ; check 'work flag'
+ ; if 0 - script enabled, check detector
+ ; else - set off
  pop b
  snz
  bra check_detector ; worked
- swp b
- pop b
- pb set_off ; stopped
+ swp b ; bring 'last state' to top
+ pop b ; dispose it
+ pb set_off
  jmp b
  
 check_detector
+ ; get source zone detector flag
  pw ZONE_DETECT_FLAG_BASE + source_zone - 1
  inp w, b
+ ; check source zone detector flag
+ ; if 1 - detector active
+ ; else - detector inactive
  pop b
  skz
  bra detector_active
 
 detector_inactive
- up b, 2
- pop b
+ up b, 2 ; bring 'last detector reading' to top
+ ; check 'last detector reading' value
+ ; if was detect - check 'last state'
+ ; else - go to not_detect
+ pop b 
  snz
  bra not_detect
- swp b
+ swp b ; bring 'last state' to top
+ ; if 'last state' = 0 - check timer
+ ; else - start timer
  pop b
  skz
  bra start_timer ; was on, check timer
@@ -78,7 +90,10 @@ detector_inactive
  jmp b
 
 not_detect
- swp b
+ swp b ; bring 'last state' to top
+ ; check 'last state'
+ ; if 0 - continue
+ ; else - check timer
  pop b
  snz
  bra continue ; was off
@@ -86,14 +101,14 @@ not_detect
  jmp b
 
 detector_active
- up dw, 3
- pop dw
- up b, 2
- pop b
- swp b
- pop b
- psh 1
- swp b
+ up dw, 3 ; bring 'timer end time' to top
+ pop dw ; dispose it
+ up b, 2 ; bring 'last detector reading' to top
+ pop b ; dispose it
+ swp b ; bring 'last state' to top
+ pop b ; dispose it
+ psh 1 ; set 'last detector reading'
+ swp b ; bring 0 up (work flag)
  bra set_on
  
 set_off
@@ -101,59 +116,68 @@ set_off
  ret
  
 start_timer
+ ; get current time
  pb TIMESTAMP
  inp b, dw
  pw delay_to_off
  ex w, dw, 0
- add dw
- up b, 4
- psh 0
- swp b
+ add dw ; calculate 'timer end time'
+ up b, 4 ; bring 'work flag' to top
+ psh 0 ; set 'last detector reading'
+ swp b ; bring 'work flag' to top
  bra set_on
  
 continue
- swp b
- pop b
- psh 0
- swp b
+ swp b ; bring 'last reading' to top
+ pop b ; dispose it
+ psh 0 ; set 'last reading'
+ swp b ; bring 'work flag' to top
  bra set_off
  
 not_time
- psh 0
- up b, 5
+ psh 0 ; set 'last detector reading'
+ up b, 5 ; bring 'work flag' to top
 
 set_on 
  psh 1
  ret
 
 check_timer
- up dw, 1
+ up dw, 1 ; bring 'timer end time' to top
+ ; compare 'current time' with 'timer end time'
  dup dw
  pb TIMESTAMP
  inp b, dw
  cmp dw
+ ; if 'current time' greater  - set off
+ ; else - go to not_time
  skn
  bra not_time
- pop dw
+ pop dw ; dispose 'timer end time'
  pb set_off
  jmp b
 
 change_state
- swp b
- pop b
+ swp b ; bring 'work flag' to top
+ pop b ; dispose it
+ ; read switch
+ ; if 0 - dispose all, set 'work flag' = 1(disabled), set off
+ ; else - set 'work flag' = 0(enabled), check state
  pb SWITCH
  inp b, b
  pop b
  snz
  bra set_work ; set work
- pop w ; set stop
+ ; set stop
+ ; dispose all
+ pop w
  pop dw
- psh 1
+ psh 1 ; set 'work flag' disabled
  pb set_off
  jmp b
  
 set_work
- psh 0
- swp b
+ psh 0 ; set 'work flag' enabled
+ swp b ; push 'work flag' on second line in stack
  pb check_state
  jmp b

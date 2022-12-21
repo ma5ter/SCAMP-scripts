@@ -3,9 +3,9 @@ b equ 0
 w equ 1
 dw equ 2
 
-;sections equ 13
-;delay equ 3 ; up to 16 bits in seconds
-;action equ 1 ; what to do `on` or `off` when active
+;sections equ 13 ; (param) monitored sections
+;delay equ 3 ; (param) up to 16 bits in seconds
+;action equ 1 ; (param) active state (what to do `on` or `off` when active)
 
 pb macro ; byte
  psh (($1 >> 4) & 15)
@@ -28,15 +28,22 @@ ex macro
 endm
 
 ; BEGIN
- pb sections 
+ ; set off if no selected sections
+ pb sections
  pop b
  snz
  ret
+ ; check last state
+ ; if was active - continue 
+ ; else - go to was_inactive
  psh action
  xor b
  pop b
  skz
- bra check_armed ; was off
+ bra was_inactive ; was off
+ ; check for all monitored guard section armed
+ ; if yes - set on
+ ; else - set off
  pb ARMED_SECTIONS ; was on
  inp b, b
  pb sections
@@ -50,7 +57,10 @@ endm
  bra set_off
  bra set_on
 
-check_armed
+was_inactive
+ ; check for all monitored guard section armed
+ ; if yes - check for timer
+ ; else dispose all and set off
  pb ARMED_SECTIONS
  inp b, b
  pb sections
@@ -74,15 +84,22 @@ set_off
  ret 
  
 check_timer_on
+ ; check if timer started
+ ; if yes - check timer
+ ; else start timer
  dup dw
  pop dw
  snz
  bra start_timer
  
 check_timer
- dup dw
+ dup dw ; save 'delay end time'
+ ; get 'current timestamp'
  psh TIMESTAMP
  inp b, dw
+ ; compare 'current timestamp' and 'delay end time'
+ ; if 'current timestamp' is greater - dispose 'delay end time' and set on
+ ; else set off
  cmp dw
  skn
  bra set_off
@@ -90,10 +107,12 @@ check_timer
  bra set_on
  
 start_timer
- pop dw
+ ; calculate timer end time and set off
+ pop dw ; dispose everything
+ ; get current timestamp
  psh TIMESTAMP
  inp b, dw
  pw delay
  ex w, dw, 1
- add dw
+ add dw ; add 'delay time' to 'current timestamp'
  bra set_off

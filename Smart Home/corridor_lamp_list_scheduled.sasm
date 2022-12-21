@@ -1,0 +1,176 @@
+; corridor lamp
+
+; settings
+;source_zone equ 1 ; (param) zone id to detect from
+;delay_to_off equ 45 ; (param) time to off after no detection (up to 16 bits in seconds)
+;active_state equ 0 ; (param) what to do `on` or `off` when active
+;from equ 1212 ; (param) period start time in minutes
+;to equ 446 ; (param) period end time in minutes
+
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+; push byte macro
+pb macro
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; push word macro
+pw macro
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; mov instruction with parameters
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+; exp instruction with parameters
+ex macro
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
+endm
+
+; BEGIN
+ ; check 'last state'
+ ; if 'last state' is active - check detector
+ ; else - continue
+ psh active_state
+ xor b
+ pop b
+ snz
+ bra check_detector
+ pw to ; get 'start period time'
+ pw from ; get 'end period time'
+ ; compare 'start period time' and 'end period time'
+ ; if they are equal - dispose period times and go check detector
+ ; else go check_time_span
+ dup dw
+ cmp w
+ skz
+ bra 2
+ pop dw
+ bra check_detector
+ pb check_time_span
+ jmp b
+
+check_sched
+ ; read flag to check detector or not
+ ; if has flag - check detector
+ ; else - deactivate
+ pop b
+ snz
+ bra do_deactivate
+ 
+check_detector
+ ; get selected zone detector value
+ ; if has detection -  go to detector_active
+ ; else - go to detector_inactive
+ pw ZONE_DETECT_FLAG_BASE + source_zone - 1
+ inp w, b
+ pop b
+ skz
+ bra detector_active
+
+detector_inactive
+ ; check off time
+ dup dw ; save 'off time'
+ ; get current timestamp
+ pb TIMESTAMP
+ inp b, dw
+ ; compare 'current timestamp' and 'off time'
+ ; if 'current timestamp' greater - dispose 'off time' and deactivate
+ ; else - activate
+ cmp dw
+ skn
+ bra do_activate
+ pop dw
+
+do_deactivate
+ psh ~active_state & 1
+ ret
+
+detector_active
+ ; dispose previous 'off time'
+ pop dw
+ ; calculate new 'off time' and activate
+ pb TIMESTAMP
+ inp b, dw
+ pw delay_to_off
+ ex w, dw, 1
+ add dw
+ 
+do_activate 
+ psh active_state & 1
+ ret
+ 
+
+check_time_span
+ dup dw
+ cmp w
+ pb get_now
+ for b
+ swp w ; swap so that N-flag reflects the result
+ ; compare 'start period time' and 'end period time'
+ ; if 'end period time' greater - time continuous
+ ; else - time split
+ skn
+ bra time_continuous
+; time interval within connected days 
+time_split
+ ; compare 'current day time' and 'start period time'
+ ; if 'current day time' greater - go to time_check_enough
+ ; else go to time_check_to to check 'end period time'
+ cmp w
+ skn
+ bra time_check_enough
+ bra time_check_to
+; time interval within one day 
+time_continuous
+ ; compare 'current day time' and 'start period time'
+ ; if 'current day time' greater - go check 'end period time'
+ ; else - go to time_check_enough
+ cmp w
+ skp
+ bra time_check_enough
+time_check_to
+ ; get current time of day
+ pb get_now
+ for b
+ ; compare 'current day time' and 'end period time'. result in n-flag
+ cmp w
+ bra check_time_span_ret
+time_check_enough
+ ; dispose unused 'to' 
+ pop w
+check_time_span_ret
+ ; if 'current day time' greater - set flag to check detector
+ ; else continue
+ skn
+ inc b
+ snz
+ dec b
+ ; dispose either matched or default value
+ pb check_sched
+ jmp b
+
+; get current time of day in minutes
+get_now
+ pb RT_HOUR
+ inp b, w
+ pw 60
+ mul w
+ pb RT_MIN
+ inp b, w
+ add w
+ up b, 2
+ jmp b

@@ -3,8 +3,10 @@ b equ 0
 w equ 1
 dw equ 2
 
-;duration equ 5 ; (param)(uncomment for debug)
-;inversion equ 0 ; (param)(uncomment for debug)
+; setting on is 0 for relay on usual state, 1 - on inversion
+
+;duration equ 5 ; (param) duration of relay action after switch
+;inversion equ 0 ; (param) inversion of relay action
 
 pb macro ; byte
  psh (($1 >> 4) & 15)
@@ -27,6 +29,9 @@ ex macro
 endm
 
 ; BEGIN
+ ; check last state considering inversion
+ ; if was active - check timer
+ ; else - check switch
  psh inversion
  xor b
  pop b
@@ -35,9 +40,12 @@ endm
  ; was on, check_timer
 
 check_timer
- dup dw
+ dup dw ; save 'timer end time'
  psh TIMESTAMP
  inp b, dw
+ ; compare 'current tme' and 'timer end time'
+ ; if 'current time' greater - dispose all and set off
+ ; else - check switch for off
  cmp dw
  skn
  bra check_switch_for_off
@@ -45,15 +53,21 @@ check_timer
  bra set_off
  
 check_switch_for_off
+ ; read switch value
  pb HAS_SWITCH
  inp b, b
  pop b
+ ; if has switch - set of
+ ; else - continue, set on
  snz
  bra set_on
  pop dw
  bra set_off
  
 check_switch
+ ; read if has switch
+ ; if has - start timer and set on
+ ; else - set off
  pb HAS_SWITCH
  inp b, b
  pop b
@@ -66,7 +80,7 @@ start_timer
  inp b, dw
  pw duration
  ex w, dw, 1
- add dw
+ add dw ; calculate 'timer end time'
 
 set_on
  psh inversion & 1

@@ -3,8 +3,8 @@ b equ 0
 w equ 1
 dw equ 2
 
-;action equ 1
-;sections equ 13
+;action equ 1 ; (param) active state
+;sections equ 13 ; (param) monitored sections
 
 pb macro ; byte
  psh (($1 >> 4) & 15)
@@ -19,50 +19,65 @@ pw macro
  nib ($1 & 15)
 endm
 
-shift_l macro
- dec b
- psh $1
- shl 1
- swp b
- dec b
+; find mask of section
+; (shift 1 left while section number > 0)
+find_section_mask macro
+ dec b  ; 'section number' - 1
+ psh $1 ; initiate mask
+ shl 1  ; shift left mask
+ swp b  ; bring 'section number' up
+ dec b  ; 'section number' - 1
+ ; if 'section number' is 0 - dispose 'section number' and leave macro
+ ; else - bring mask up and continue shifting
  snz
  bra 2
- swp b
+ swp b  ; bring mask up
  bra -7
- pop b
+ pop b ; dispose 'section number'
 endm
 
 ; BEGIN
  pop b ; dispose previous result
 
+; check zones for alarms
 check_troubles
- pw ZONE_SECTION_BASE
-loop
- dup w
- inp w, b
+ pw ZONE_SECTION_BASE ; put first 'zone section info' address
+loop ; 
+ dup w ; duplicate current 'zone setion info' address
+ inp w, b ; get section number for current zone
  dup b
- pb 254
+ ; check if section number is anything but 1 or 0
+ ; if yes - find section mask
+ ; else - continue
+ pb 254 ; anything but 1 or 0
  and b
  pop b
  snz
- bra label
- shift_l 1
-label
+ bra do_not_shift
+ find_section_mask 1
+do_not_shift
  pb sections
  pb ARMED_SECTIONS
  inp b, b
  pb GUARD_SECTIONS
  inp b, b
- inv b
- ior b
- and b
+ inv b ; get mask of all type of sections but guard
+ ior b ; calculate mask of 'all type of sections' and 'armed guard'
+ and b ; calculate which ones is monitored
+ ; check if zone section belongs to monitored
+ ; if yes - check alarm on zone
+ ; else - continue
  and b
  pop b
  skz
  bra check_alarm ; zone to check
- inc w
+next_zone
+ inc w ; increment zone section info address
+ ; compare current zone section info address and last
+ ; if equal - go to no_alarm_dispose
+ ; else - continue loop
  dup w
- pw 4128
+ pw 4128 ; zone section info address of last zone
  cmp w
  snz
  bra no_alarm_dispose
@@ -70,32 +85,33 @@ label
  jmp b
  
 check_alarm
+ ; get zone number from current 'zone section info' address
  dup w
  pw ZONE_SECTION_BASE
  sub w
+ ; add this 'zone number' to 'zone alarm flag' address
  pw ZONE_ALARM_FLAG_BASE
  add w
- inp w, b
+ inp w, b ; get alarm flag of this zone
+ ; if zone has alarm - dispose and set_off
+ ; else - check next zone
  skz
- bra dispose
+ bra has_alarm
  pop b
- inc w
- dup w
- pw 4128
- cmp w
- snz
- bra no_alarm_dispose
- pb loop
- jmp b
+ bra next_zone
 
-dispose
- pop dw
+has_alarm
+ pop dw ; dispose 'alarm flag' and current 'zone section info' address
  pb set_off
  jmp b
  
 no_alarm_dispose
- pop w
+ pop w ; dispose current 'zone section info' address
 no_alarm
+ ; (I really don’t remember why this piece of code is needed here)
+ ; check panic flag
+ ; if has - set off
+ ; else - set on
  psh PANIC
  inp b, b
  pop b

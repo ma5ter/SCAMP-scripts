@@ -1,0 +1,85 @@
+; common TOS sizes
+b equ 0
+
+;action equ 1 ;(param) active state
+;sections equ 3 ;(param) monitoring sections
+;check_exit_delay equ 1 ;(param) flag that determines whether the relay should be turned off during the exit delay, or turned on (if 1 - turn off, if 0 - turn on)
+;check_entry_delay equ 1 ;(param) flag that determines whether the relay should be turned off during the entry delay, or turned on (if 1 - turn off, if 0 - turn on)
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; BEGIN
+ pop b ; dispose previous result
+
+ ; set off if no selected sections
+ pb sections
+ pop b
+ snz
+ ret
+ 
+check_exit
+ ; check exit delay
+ ; if yes - read check_exit_delay param flag
+ ; else - go check entry delay
+ psh EXIT_DELAY
+ inp b, b
+ pop b
+ snz
+ bra check_entry ; 0
+ ; read check_exit_delay param flag
+ ; if 0 - set on
+ ; else - set off
+ psh check_exit_delay ; 1
+ pop b
+ skz
+ bra set_off ; 1
+ bra set_on ; 0
+ 
+check_entry
+ ; check entry delay
+ ; if yes - read check_entry_delay param flag
+ ; else - go check arm
+ psh ENTRY_DELAY
+ inp b, b
+ pop b
+ snz
+ bra check_arm ; 0
+ ; read check_entry_delay param flag
+ ; if 0 - set on
+ ; else - set off
+ psh check_entry_delay ; 1
+ pop b
+ skz
+ bra set_off ; 1
+ bra set_on ; 0
+
+check_arm
+ ; get monitored armed guard and always armed sections mask
+ pb sections 
+ dup b ; save monitored sections mask 
+ ; get armed guard sections
+ pb ARMED_SECTIONS
+ inp b, b
+ ; get all sections mask but guard
+ pb GUARD_SECTIONS
+ inp b, b
+ inv b
+ ior b ; combine 'armed guard sections mask' and 'all sections mask but guard'
+ and b ; select only monitored sections
+ ; compare armed sections with selected sections
+ ; if all selected sections are srmed or always armed - set on
+ ; else - set off
+ cmp b
+ snz
+ bra set_on ; 0
+
+set_off
+ psh ~action & 1
+ ret
+
+set_on
+ psh action & 1
+ ret
