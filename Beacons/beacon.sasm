@@ -1,0 +1,288 @@
+delay_blink_mask equ 256 ; mask of delay indication
+im_home_blink_mask equ 1792 ; mask of i am home indication
+alarm_mask equ 128 ; mask of alarm indication
+
+;sections equ 13 ; (param) monitored sections
+;enable_panic equ 1 ; (param) flag if need to check panic
+;enable_im_home equ 1 ; (param) flag if i am home mode is enabled
+;all_section_types equ 1 ; (param) flag if need to check all types of sections
+;indicate_delays equ 1 ; (param) flag if need to indicate delays
+
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+; results
+off equ 0
+on equ 1
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+pw macro ; word
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; mov instruction with parameters
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+; exp instruction with parameters
+ex macro
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
+endm
+
+; find mask of section
+; (shift 1 left while section number > 0)
+find_section_mask macro
+ dec b  ; 'section number' - 1
+ psh $1 ; initiate mask
+ shl 1  ; shift left mask
+ swp b  ; bring 'section number' up
+ dec b  ; 'section number' - 1
+ ; if 'section number' is 0 - dispose 'section number' and leave macro
+ ; else - bring mask up and continue shifting
+ snz
+ bra 2
+ swp b  ; bring mask up
+ bra -7
+ pop b  ; dispose 'section number'
+endm
+
+; BEGIN
+ ; TOS on entry:
+ ; b: previous result
+ 
+
+ 
+start
+ pop b ; dispose 'last state'
+ 
+ ; get alarming sections mask
+ pb ALARMING_SECTIONS
+ inp b, b
+ pb sections ; get monitored sections mask
+ and b ; calculate monitored alarming sections mask
+ pop b ; read result
+ ; if there any section is alarming - alarm
+ ; else - check if panic is enabled
+ skz
+ bra alarm
+ 
+check_panic_enabled
+ ; get oanic is enabled flag
+ psh enable_panic
+ ; read
+ pop b
+ ; if enabled - check panic
+ ; else - check delay indication flag
+ snz
+ bra check_delay_indication_flag
+ 
+check_panic
+ ; get panic flag
+ pb PANIC
+ inp b, b
+ ; read panic flag
+ pop b
+ ; if has panic - alarm
+ ; else - check delay indication flag
+ snz
+ bra check_delay_indication_flag
+
+alarm
+ ; get current ticks
+ pb TICKS
+ inp b, b
+ ; get alarm mask
+ pb alarm_mask
+ ; calculate ticks matching the alarm mask
+ and b
+ ; read result
+ pop b
+ ; if match - set on
+ ; else - set off
+ skz
+ psh on ; set on
+ ret
+ 
+check_delay_indication_flag
+ ; get flag that tells indicate delays or not
+ psh indicate_delays
+ ; read flag
+ pop b
+ ; if has flag - check zones
+ ; else - check arming
+ skz
+ bra check_zones
+ pb check_arming
+ jmp b
+
+check_zones
+ pw ZONE_SECTION_BASE ; put to stack address of section number of first zone
+loop
+ dup w ; save address of 'section number of current zone'
+ inp w, b ; get 'section number of current zone'
+ dup b ; save 'section number of current zone'
+ ; check if section number is anything but 1 or 0
+ ; if yes - find section mask
+ ; else - continue
+ pb 254 ; anything but 1 or 0
+ and b
+ pop b
+ snz
+ bra check_section_monitored
+ find_section_mask 1
+check_section_monitored
+ ; check if that section is monitored
+ pb sections
+ and b
+ pop b
+ ; if monitored - check delay
+ ; else - check next zone
+ skz
+ bra check_delay ; zone to check
+
+check_end_loop
+ inc w ; increase address of 'section number of zone'
+ dup w ; save 'section number of next zone'
+ ; check if it was last zone number
+ pw 4128
+ ; if it was last - dispose, go check arming
+ ; else - continue loop
+ cmp w
+ skz
+ bra loop
+ pb no_alarm_dispose
+ jmp b
+ 
+check_delay
+ dup w ; save address of 'section number of current zone'
+ pw ZONE_SECTION_BASE ; get address of 'section number of first zone'
+ sub w ; calculate 'number of current zone'
+ dup w ; save 'number of current zone'
+ pw ZONE_EXITDELAY_FLAG_BASE ; get base address of 'zone exit delay flag'
+ add w ; calculate address of 'current zone exit delay flag'
+ inp w, b ; get 'current zone exit delay flag'
+ ; if has 'zone exit delay flag' - procedure delay
+ ; else - check entry delay
+ skz
+ bra delay
+ pop b ; dispose 'zone exit delay flag'
+ ; get base address of 'zone entry delay flag'
+ pw ZONE_ENTRYDELAY_FLAG_BASE
+ add w ; calculate address of 'current zone entry delay flag'
+ inp w, b ; get 'current zone entry delay flag'
+ ; if has 'entry delay flag' - procedure delay
+ ; else - check if it was last zone
+ skz
+ bra delay
+ pop b ; dispose 'zone entry delay flag'
+ bra check_end_loop
+ 
+delay
+ ; dispose 'zone delay flag', 'zone section addres' and 'timer mask'
+ pop dw
+ ; get current ticks
+ pb TICKS
+ inp b, w
+ ; get alarm mask
+ pw delay_blink_mask
+ and w ; calculate
+ pop w ; read calculation
+ ; if result = 0 - set off
+ ; else - set on
+ skz
+ psh on ; set on
+ ret
+ 
+ 
+no_alarm_dispose
+ pop w ; dispose address of 'section number of zone'
+check_arming
+ ; get guard sections mask
+ pb GUARD_SECTIONS
+ inp b, b
+ ; get armed sections mask
+ pb ARMED_SECTIONS
+ inp b, b
+ ; calculate armed guard sections mask 
+ and b
+ ; check if need to get all sections types state
+ psh all_section_types
+ ; read
+ pop b
+ ; if yes - get other sections types mask
+ ; else - continue
+ snz
+ bra get_monitored
+ 
+get_other_types
+ ; get guard sections mask
+ pb GUARD_SECTIONS
+ inp b, b
+ ; invert it to get other sections type mask
+ inv b
+ ; combine it wit guard sections mask
+ ior b
+
+get_monitored
+ pb sections
+ ; calculate monitored armed sections mask
+ and b
+ ; if any of monitoed sections is armed - check fully armed, or not
+ ; else - set off
+ skz
+ bra armed
+ ; no need to pop/push, TOS is already zero, set off
+ ret
+
+armed
+ ; get monitored sections mask
+ pb sections
+ ; compare armed sections with monitored guard sections
+ cmp b
+ ; if equal - full device armed
+ ; else - part of it
+ skz
+ bra partial
+
+full
+ psh on
+ ret
+
+partial
+ ; read if i am home mode is enabled
+ psh enable_im_home
+ pop b
+ ; if i am home mode is enabled - blink
+ ; else - set off
+ snz
+ ret
+ 
+blink_im_home
+ ; get current ticks
+ pb TICKS
+ inp b, w
+ ; get 'i am home blink mask'
+ pw im_home_blink_mask
+ ; calculate
+ and w
+ ; read
+ pop w
+ ; if result = 0 - set off
+ ; else - set on
+ skz
+ psh on ; set on
+ ret

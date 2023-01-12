@@ -1,0 +1,399 @@
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+;sections equ 1 ; (param) monitored sections mask
+;timer equ 5 ; (param) time of alarm
+;include_panic equ 1 ; (param) include panic alarm
+;include_delays equ 1 ; (param) include delays processing
+;include_arm_disarm_signals equ 1 ; (param) include signals of arm/disarm
+mask equ 128 ; mask of blink
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; push word macro
+pw macro
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+; stack template
+; - last state - 1 byte
+; - signal counter - 1 byte
+; - armed flag - 1 byte
+; - was walarmed flag - 1 byte
+; - timer end time - 2 bytes
+; - -|-|-|-
+
+;BEGIN
+check_signal
+ swp b ; bring 'signal counter' to top
+ ; if 'signal counter' has value - check timer
+ ; else - check arming guard sections
+ snz
+ bra no_signal
+has_signal
+ pb check_signal_timer
+ jmp b
+no_signal
+ pop b ; dispose 'signal counter'
+ ; get switch
+ pb HAS_SWITCH
+ inp b, b
+ pop b ; read switch
+ ; if has switch - disable
+ ; else - check arming
+ skz
+ bra check_last_state
+ pop b ; dispose 'last state'
+ bra check_arming
+check_last_state
+ pop b ; read 'last state'
+ ; if was off - no need to turning off, check arming
+ snz
+ bra check_arming ; 0
+manually_disable
+ up dw, 1 ; bring 'alarmed flag' and 'timer end time' to top
+ pop dw ; dispose 'alarmed flag' and 'timer end time'
+ psh 1 ; set 'alarmed flag'
+ pb swap_and_off
+ jmp b
+
+check_arming
+ dup b ; save 'armed flag'
+ ; get guard sections mask
+ psh GUARD_SECTIONS
+ inp b, b
+ pb sections ; get monitored sections mask
+ and b ; calculate which guard sections are monitored
+ ; get armed sections mask
+ psh ARMED_SECTIONS
+ inp b, b
+ pb sections ; get monitored sections mask
+ and b ; calculate which armed sections are monitored
+ ; compare 'monitored guard sections' and 'monitored armed sections'
+ ; if equal - all device armed - check entry delay 0
+ ; else - device disarmed - 1 - check exit delay
+ cmp b
+ psh 0 ; current arm state base
+ ; if device armed - change current arm state to 1
+ ; else - left 0 as is
+ snz
+ nib 1
+ xor b ; calculate arm changing status
+ pop b
+ ; if device did not change arm status - check alarm
+ ; else - check last arm status
+ skz
+ bra check_armed_flag ; 1
+ swp b ; bring 'alarmed flag' to top
+
+check_alarmed_flag
+ pop b ; read 'alarmed flag'
+ ; if alarmed - check if alarms there still
+ ; else - go check panic
+ skz
+ bra check_if_has_any_alarm
+ pb check_for_panic
+ jmp b
+
+check_if_has_any_alarm
+ ; get panic state considering 'include panic' flag
+ pb PANIC
+ inp b, b
+ psh include_panic
+ and b
+ ; get alarms considering monitored sections
+ psh ALARMING_SECTIONS
+ inp b, b
+ pb sections
+ and b
+ ior b ; combine alarms and panic
+ pop b
+ psh 0 ; set base of 'alarmed' flag
+ ; if there still some alarm - set 'alarmed' = 1
+ ; else - left 'alarmed' = 0
+ skz
+ nib 1 ; set 'alarmed'
+ pb swap_and_off
+ jmp b
+ 
+check_armed_flag
+ dup b ; save 'armed flag'
+ pop b ; check 'armed flag'
+ ; if was armed - check entry delay
+ ; else - check exit delay
+ snz
+ bra check_exit_delay ; was disarmed
+check_entry_delay
+ psh include_delays ; get include dalay parameter
+ pop b
+ ; if include - check entry delay
+ snz
+ bra dispose_armed_flag
+ ; get entry delay
+ psh ENTRY_DELAY
+ inp b, b
+ pop b
+ ; if has 'entry delay' - process delay, but do not reset 'armed' flag yet
+ ; else reset 'armed' flag and make signal
+ skz
+ bra delay ; 1
+dispose_armed_flag
+ swp w ; bring 'timer end time' to top
+ pop w ; dispose 'timer end time'
+ pop b ; dispose 'armed' flag
+ psh 0 ; set 0 to 'armed' flag
+ psh 0 ; set 'signal counter' initial value
+ psh include_arm_disarm_signals ; get include arm/disarm signals parameter
+ pop b ; read include arm/disarm signals
+ ; if include arm/disarm signal - set 'signal counter' = 8
+ ; else leave 'signal counter' = 0
+ skz
+ nib 8 ; set 'signal counter'
+ psh 0 ; set off relay state
+ ret
+
+check_exit_delay
+ psh include_delays ; get include dalay parameter
+ pop b
+ ; if include - check entry delay
+ snz
+ bra set_armed_and_make_signal
+ ; get exit delay
+ psh EXIT_DELAY
+ inp b, b
+ pop b
+ ; if has exit delay - set off
+ ; else - make signal
+ skz
+ bra delay ; 1
+set_armed_and_make_signal
+ swp w ; bring 'timer end time' to top
+ pop w ; dispose 'timer end time'
+ pop b ; dispose 'armed flag'
+ psh 1 ; set 'armed flag'
+ psh 0 ; set 'signal counter' initial value
+ psh include_arm_disarm_signals ; get include arm/disarm signals parameter
+ pop b ; read include arm/disarm signals
+ ; if include arm/disarm signal - set 'signal counter' = 8
+ ; else leave 'signal counter' = 0
+ skz
+ nib 2 ; set 'signal counter' = 2
+ psh 0 ; set relay off state
+ ret
+
+delay
+ psh 0 ; set 'signal counter'
+ psh 0 ; set off relay state
+ ret
+
+check_signal_timer
+ up w, 4 ; bring 'timer end time' to top
+ dup w
+ pop w
+ snz
+ bra timeout4
+ dup w ; save 'timer end time'
+ ; get current ticks
+ psh TICKS
+ inp b, w
+ ; compare 'timer end time' and current ticks
+ ; if current ticks is greater - time is out
+ ; else - continue
+ cmp w
+ skp
+ bra timeout4
+continue_signal_or_gap
+ up dw, 2 ; bring 'signal counter', 'last state', alarmed flag' and 'armed flag' to top
+ swp b ; bring 'last state' to top
+ ret
+
+timeout4
+ pop w ; dispose 'timer end time'
+ shr 1 ; shift 'signal counter' right
+ dup b ; save 'signal counter'
+ psh 2 ; push 00000010 mask to stack
+ ; compare 00000010 with 'signal counter'
+ ; if equal - set timer for 128 ticks
+ ; else - check with 00000001 mask
+ cmp b
+ skz
+ bra check_00000101 ; 1
+signal_gap_for_128_ticks
+ pw 128 ; 0
+ bra start_n_timer
+check_00000101
+ dup b ; save 'signal counter'
+ psh 5 ; push 00000101 to stack
+ ; check 'signal counter' matching 00000101 
+ ; if match - set timer for 32 ticks
+ ; else - dispose 'last state' and 'signal counter' and set off
+ and b
+ pop b
+ snz
+ bra stop_signaling_dispose ; 1
+signal_for_32_ticks
+ pw 32 ; 0
+ bra start_n_timer
+stop_signaling_dispose
+ pop w ; dispose 'last state' and 'signal counter'
+ pw 0 ; set off relay state and 'signal counter' = 0
+ ret
+ 
+start_n_timer
+ ; get current ticks
+ psh TICKS
+ inp b, w
+ add w ; calculate 'timer end time'
+ up dw, 2 ; bring 'signal counter', 'last state', 'armed flag' and 'alarmed flag' to top
+ swp b ; bring 'last state' to top
+ ; flip the 'last value' (1 to 0, 0 to 1)
+ psh 1
+ xor b
+ ret
+
+check_for_panic
+ ; get panic status considering include panic flag
+ pb PANIC
+ inp b, b
+ psh include_panic
+ and b
+ pop b ; read panic status
+ ; if panic - check for timer
+ ; else - check alarming
+ snz
+ bra check_alarming
+ psh 0 ; set 'fire flag'
+ bra check_for_timer
+
+check_alarming
+ ; get alarming sections mask
+ psh ALARMING_SECTIONS
+ inp b, b
+ pb sections
+ and b ; calculate monitored alarming sections mask
+ ; if has alarms - check if it's fire
+ ; else - no alarm, set off
+ skz
+ bra check_is_fire
+ ; already have 0 on top use it as 'alarmed flag'
+ pb swap_and_off
+ jmp b
+
+check_is_fire
+ ; get fire sections mask
+ psh FIRE_SECTIONS
+ inp b, b
+ and b ; calculate monitored fire alarms
+ pop b ; read monitored fire alarms
+ psh 0 ; set base 'fire alarm'
+ ; if has fire alarm - set 'fire alarm' flag = 1
+ ; else - leave 'fire alarm' = 0
+ skz
+ nib 1 ; set 'fire alarm' flag = 1
+ 
+check_for_timer ; 0 not fire
+ swp w ; bring 'timer end time' to top
+ ; if no timer started - start timer
+ ; else - check timer
+ skz
+ bra check_timer
+ pop w ; dispose timer place
+ bra start_timer
+
+set_off
+ swp w ; bring 'timer end time' to top
+ pop w ; dispose 'timer end time'
+ psh 0 ; set 'signal counter' = 0
+ psh 0 ; set off relay action
+ ret
+
+start_timer
+ psh TIMESTAMP
+ inp b, w ; get current timestamp
+ pw timer * 60
+ add w ; calculate 'timer end time'
+ bra set_on
+ 
+check_timer
+ dup w ; save 'timer end time'
+ psh TIMESTAMP
+ inp b, w ; get 'current timestamp'
+ ; compare 'current timestamp' and 'timer end time'
+ ; if 'current timestamp' is greater - time is out
+ ; else - continue, set on
+ cmp w
+ skp
+ bra timeout
+ 
+set_on
+ swp w ; bring 'fire alarm' and 'armed flag' to top
+ ; read 'fire alarm' flag
+ pop b
+ ; if 'common alarm' flag is 0 - process fire siren
+ ; else - regular siren
+ skz
+ bra fire ; 1
+just_on
+ psh 0 ; set 'alarmed flag'
+ bra swap_and_on
+ 
+timeout
+ pop w ; dispose 'timer end time'
+ pop b ; dispose 'fire alarm' flag
+ psh 1 ; set 'alarmed flag'
+ swp b ; bring 'armed' to top
+ pb set_off
+ jmp b
+
+fire
+ pw 7423 ; push base of zone uid address
+ ; get zone id where script is attached
+ pb 17
+ inp b, w
+ ; calculate address of zone uid
+ add w
+ inp w, b ; get zone uid
+ psh 5 ; uid of some specific zone type (can't recall which)
+ ; compare 'zone uid' and 'specific uid'
+ ; if equal - it can blink, so blink
+ ; else - it cannot
+ cmp b
+ skz
+ bra just_on
+
+blink
+ ; get ticks
+ psh TICKS
+ inp b, b
+ pb mask ; push blinking mask to stack
+ and b ; calculate matching ticks with a mask
+ pop b ; read result
+ psh 0 ; set 'alarmed flag'
+ ; if match with mask - set off
+ ; else - set on relay action
+ skz
+ bra swap_and_off
+swap_and_on
+ swp b ; bring 'armed' to top
+ psh 0 ; set 'signal counter' = 0
+ psh 1 ; set on relay action
+ ret
+swap_and_off
+ swp b ; bring 'armed' to top
+ psh 0 ; set 'signal counter' = 0
+ psh 0 ; set off relay action
+ ret
