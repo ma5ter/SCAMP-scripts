@@ -2,10 +2,10 @@ delay_blink_mask equ 256 ; mask of delay indication
 im_home_blink_mask equ 1792 ; mask of i am home indication
 alarm_mask equ 128 ; mask of alarm indication
 
-;sections equ 13 ; (param) monitored sections
-;enable_panic equ 1 ; (param) flag if need to check panic
-;enable_im_home equ 1 ; (param) flag if i am home mode is enabled
-;all_section_types equ 1 ; (param) flag if need to check all types of sections
+;sections equ 7 ; (param) monitored sections
+;enable_panic equ 0 ; (param) flag if need to check panic
+;enable_im_home equ 0 ; (param) flag if i am home mode is enabled
+;all_section_types equ 0 ; (param) flag if need to check all types of sections
 ;indicate_delays equ 1 ; (param) flag if need to indicate delays
 
 ; common TOS sizes
@@ -190,10 +190,11 @@ check_delay
  bra delay
  pop b ; dispose 'zone entry delay flag'
  bra check_end_loop
- 
+
 delay
  ; dispose 'zone delay flag', 'zone section addres' and 'timer mask'
  pop dw
+ pop b
  ; get current ticks
  pb TICKS
  inp b, w
@@ -251,6 +252,21 @@ get_monitored
 armed
  ; get monitored sections mask
  pb sections
+ psh all_section_types
+ ; read
+ pop b
+ ; if yes - get other sections types mask
+ ; else - continue
+ skz
+ bra check_partial
+only_guard
+ ; get guard sections mask
+ pb GUARD_SECTIONS
+ inp b, b
+ ; calculate monitored guard sections mask
+ and b
+ 
+check_partial
  ; compare armed sections with monitored guard sections
  cmp b
  ; if equal - full device armed

@@ -1,0 +1,175 @@
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+;action equ 0 ; (param) active state of relay
+;manual equ 1 ; (param) manual reset of flood
+
+ALARM_REASON_FLOOD equ 23 ; flood alarm reason
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; push word macro
+pw macro
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+ ; get 'manual' flag parameter
+ psh manual
+ pop b ; read it
+ ; if 'manual' - go to manual_reset
+ ; else - go to auto
+ skz
+ bra manual_reset
+auto
+ pop b ; dispose 'last state'
+ pop b ; dispose 'was flood'
+ bra check_fire
+manual_reset
+ psh action ; get active ralay state
+ xor b ; calculate 'last state'
+ pop b
+ ; if was off - read 'was flood'
+ snz
+ bra check_fire
+ pop b
+ ; if 'was flood' = 1 - wait switch
+ ; else - check fire
+ snz
+ bra check_fire
+ 
+wait_switch
+ ; get switch value
+ pb HAS_SWITCH
+ inp b, b
+ pop b ; read switch value
+ ; if has switch - reset, continue script
+ ; else - check if has fire before end
+ skz
+ bra check_fire
+ ; get fire sections mask
+ pb FIRE_SECTIONS
+ inp b, b
+ ; get alarming sections mask
+ pb ALARMING_SECTIONS
+ inp b, b
+ ; calculate alarminf fire sections
+ and b
+ ; if has fire alarm - set on
+ ; else - no fire alarm, set off
+ snz
+ bra not_fire ; not fire
+ pb set_on ; fire
+ jmp b
+ 
+not_fire
+ pop b ; dispose fire alarm sections mask
+ psh 1 ; set 'was flood'
+ pb set_off
+ jmp b
+ 
+check_fire
+ ; get fire sections mask
+ pb FIRE_SECTIONS
+ inp b, b
+ ; get alarmed sections mask
+ pb ALARMING_SECTIONS
+ inp b, b
+ ; calculate alarmed fire sections mask
+ and b
+ ; if there any fire alarm - set on
+ ; else - check zone
+ snz 
+ bra check_zone ; not fire
+ pop b ; dispose alarming fire sections mask
+ pb set_on ; fire
+ jmp b
+
+check_zone
+ ; get first zone alarm reason address
+ pw INP_ZONE_ALARM_REASON_BASE
+loop
+ dup w ; save current zone alarm reason address
+ inp w, b ; get current zone alarm reason
+ ; get flood alarm reason
+ pb ALARM_REASON_FLOOD
+ ; compare 'flood alarm reason' and 'current zone alarm reason'
+ cmp b
+ ; if equal - check flood
+ ; else - continue
+ snz
+ bra check_flood
+ inc w ; next zone alarm reason address
+ ; check if we out of range
+ dup w
+ pw INP_ZONE_ALARM_REASON_BASE + 32
+ cmp w
+ ; if out of range - check arm
+ ; else - continue loop
+ skz
+ bra loop
+ 
+dispose_switch
+ ; get switch value
+ pb HAS_SWITCH
+ inp b, b
+ pop b ; dispose switch value
+ 
+check_arm
+ ; dispose 'last zone alarm reason address' and 'alarming fire sections mask'
+ pop w
+ pop b
+ ; get armed sections mask
+ psh ARMED_SECTIONS
+ inp b, b
+ ; if has any - get guard sections mask
+ ; else - set on
+ snz
+ bra set_on
+ psh GUARD_SECTIONS
+ inp b, b
+ ; compare armed sections and guard sections
+ cmp b
+ ; if equal - all armed, set off
+ ; else - set on
+ skz
+ bra set_on
+ psh 0 ; set 'was flood'
+ bra set_off
+
+check_flood
+ ; calculate current zone number
+ dup w ; save current zone alarm reason address
+ pw INP_ZONE_ALARM_REASON_BASE
+ sub w
+ ; get zone alarm flag base address
+ pw ZONE_ALARM_FLAG_BASE
+ add w ; calculate address of current zone alarm flag
+ inp w, b ; get current zone alarm flag
+ ; if has alarm - dispose and set off
+ ; else continue loop
+ skz
+ bra dispose
+ pop b ; dispose 'zone alarm flag'
+ inc w ; next zone alarm reason address
+ pb loop
+ jmp b
+ 
+dispose
+ pop dw ; dispose 'zone alarm flag', 'current zone alarm reason address' and 'alarming fire sections mask'
+ psh 1 ; set 'was flood'
+
+set_off
+ psh ~action & 1
+ ret
+ 
+set_on
+ psh action & 1
+ ret

@@ -1,0 +1,353 @@
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+ ; parameters, uncomment for debug
+sections equ 13 ; (param) mask that point on tracked sections
+delay equ 3 ; (param) delay in seconds
+action equ 1 ; (param) what to do `on` or `off` when active
+entry_delay_duration equ 45 ; (param) entry delay duration setted to device
+exit_delay_duration equ 60 ; (param) exit delay duration setted to device
+
+blink_mask_1 equ 192
+blink_mask_2 equ 448
+blink_mask_3 equ 16
+
+;statuses:
+; 0 - none
+; 1 - exit delay
+; 2 - entry delay
+; 3 - no alarm detect
+; 4 - alarm detect
+; 5 - disarmed
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; push word macro
+pw macro
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; exp instruction with parameters
+ex macro
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
+endm
+
+; mov instruction with parameters
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+; BEGIN
+ swp b ; bring ?? to top
+ dup b ; save ??
+ ; check if ?? is 8
+ psh 8 ; 
+ and b
+ pop b
+ ; if ?? is 8 - loop
+ ; else - continue
+ snz
+ bra check_4
+ pb loop
+ jmp b
+check_4
+ dup b ; save ??
+ ; check if ?? is 4
+ psh 4
+ and b
+ pop b
+ ; if ?? is 4 - alarm_detect_disarmed
+ ; else - continue
+ snz
+ bra check_3
+ pb alarm_detect_disarmed
+ jmp b
+check_3
+ dup b ; save ??
+ ; check if ?? is 3
+ psh 3
+ cmp b
+ ; if ?? is 3 - no_alarm_detect
+ ; else - continue
+ skz
+ bra 3
+ pb no_alarm_detect
+ jmp b
+check_1_2
+ dup b ; save ??
+ ; check if ?? is anything
+ pop b
+ ; if ?? is not 0 - delay_counting
+ ; else - check_exit_delay
+ snz
+ bra flag_zero
+ pb delay_counting
+ jmp b
+flag_zero
+ pb check_exit_delay
+ jmp b
+ 
+alarm_detect_disarmed
+ up w, 2 
+ dup w
+ psh TICKS
+ inp b, w
+ cmp w
+ skn
+ bra label2
+ up b, 4
+ dec b
+ snz
+ bra label3
+ up w, 1
+ pop w
+ swp b
+ dup b
+ psh 4
+ cmp b
+ skz
+ bra disar; disarmed
+ pw 77 ; 0.3 sec ; alarm_detect
+ bra label12
+ 
+disar
+ pw 40 ; 0.1 sec
+
+label12
+ psh TICKS
+ inp b, w
+ add w 
+ up b, 2
+ up b, 4
+ psh 1
+ xor b
+ ret
+
+label2
+ up b, 2
+ up b, 3
+ ret
+
+label3
+ pop dw
+ pop b
+ psh 0
+ ret
+ 
+no_alarm_detect
+ swp b
+ pop b
+ up w, 1
+ dup w
+ psh TICKS
+ inp b, w
+ cmp w
+ skn
+ bra label11
+ pop dw
+ psh 0
+ ret
+
+label11
+ up b, 2
+ psh 1
+ ret
+
+delay_counting
+ dup b ; save ??
+ dec b ; decrement ??
+ pop b ; read decremented ??
+ ; if decremented ?? is 0 - continue counting
+ ; else - ??????
+ snz
+ bra continue_counting
+ pb ARMED_SECTIONS
+ inp b, b
+ pop b
+ skz
+ bra continue_counting; 1
+ pop dw; 0
+ pop b
+ psh 4
+ psh TICKS
+ inp b, w
+ pw 1064 ; 2.1 sec
+ add w
+ psh 5  ; stat
+ psh 0
+ pb start_pause
+ jmp b
+ 
+continue_counting
+ up w, 2 ; bring 'delay end time'
+ dup w ; save 'delay end time'
+ ; get current timestamp
+ psh TIMESTAMP
+ inp b, w
+ ; substract 'current timestamp' from 'delay end time' to get 'rest of delay'
+ sub w
+ ; if result negative - ??????
+ ; else - ??????
+ skn
+ bra 3
+ pb label4
+ jmp b
+ up b, 4 ; bring ?? to to
+ dup b ; save ??
+ dec b ; decrement ??
+ pop b ; read 'decremented ??'
+ ; if decremented ?? is 0 - it's exit deoay
+ ; else - it's entry delay
+ snz
+ bra get_third_of_exit_delay_duration ; ex
+get_third_of_entry_delay_duration
+ pw entry_delay_duration / 3 ; get entry duration divided by 3
+ bra choose_blink_speed
+get_third_of_exit_delay_duration
+ pw exit_delay_duration / 3 ; get exit duration divided by 3
+
+choose_blink_speed
+ up w, 3 ; bring 'rest of delay' to top
+ cmp w ; compare 'rest of delay' and third of 'delay duration'
+ ; if 'rest of delay' is greater - less then third of delay left - blink faster
+ ; else - blink normal
+ skp
+ bra get_slow_blink_mask; 1
+get_fast_blink_mask
+ pw blink_mask_1; 2
+ bra label6
+get_slow_blink_mask
+ pw blink_mask_2
+
+label6
+ dup w
+ psh TICKS
+ inp b, w
+ and w
+ cmp w
+ snz
+ bra on; 1
+ psh 0; 0
+ bra label7
+on
+ psh 1
+
+label7
+ up b, 4
+ pop b
+ ret
+
+label4
+ pop dw
+ dec b
+ pop b
+ skz
+ bra label10 ; 1 ent
+ pop b  ; 0 ex
+ pb GUARD_SECTIONS
+ inp b, b
+ pb ALARMING_SECTIONS
+ inp b, b
+ and b
+ pop b
+ skz
+ bra have_alarm
+ psh TICKS
+ inp b, w
+ pw 1024
+ add w
+ psh 3 ; stat
+ psh 0
+
+start_pause
+ psh TIMESTAMP
+ inp b, b
+ psh 2
+ add b
+ psh 8
+ psh 0
+ ret
+ 
+label10
+ psh 0
+ ret
+ 
+loop
+ swp b
+ pop b
+ swp b
+ dup b
+ psh TIMESTAMP
+ inp b, b
+ cmp b
+ skn
+ bra cont_loop
+ pop w
+ ret
+ 
+cont_loop
+ swp b
+ psh 0
+ ret
+
+have_alarm
+ psh 6
+ psh TICKS
+ inp b, w
+ pw 77 ; 0.3 sec
+ add w
+ psh 4 ; stat
+ psh 0
+ ret
+
+check_exit_delay
+ pop w ; dispose ???
+ ; get exit delay flag
+ pb EXIT_DELAY
+ inp b, b
+ pop b
+ ; if no exit delay - check enty delay
+ ; else - start exit delay indication
+ skz
+ bra exit_delay_start
+ 
+check_entry_delay
+ ; get entry delay
+ pb ENTRY_DELAY
+ inp b, b
+ pop b
+ ; if no entry delay - set off
+ ; else - start entry delay indication
+ skz
+ bra entry_delay_start
+ psh 0 ; set relay action = 0
+ ret
+ 
+entry_delay_start
+ psh 2
+ pw entry_delay_duration ; ent
+ bra label9
+exit_delay_start
+ psh 1 ; set ??
+ pw exit_delay_duration ; get exit delay duration
+ 
+label9
+ ; get current timestamp
+ psh TIMESTAMP
+ inp b, w
+ add w ; add duration
+ up b, 2 ; bring ?? to top
+ psh 0 ; set relay action = 0
+ ret

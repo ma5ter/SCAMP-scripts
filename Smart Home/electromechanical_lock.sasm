@@ -1,10 +1,10 @@
-﻿; common TOS sizes
+﻿;; common TOS sizes
 b equ 0
 w equ 1
 dw equ 2
 
-;duration equ 5 ; (param) duration of relay action after switch
-;action equ 1; (param) relay action value
+timer equ 5
+action equ 1
 
 pb macro ; byte
  psh (($1 >> 4) & 15)
@@ -27,51 +27,52 @@ ex macro
 endm
 
 ; BEGIN
- ; check last state
- ; if was active - check timer
- ; else - check switch
+ 
+ ; get switch
+ pb HAS_SWITCH
+ inp b, b
+ ; get last state
+ ; if 1 - was off
+ ; else - was on
  psh action
  xor b
- pop b
- skz
- bra check_switch ; was off
- ; was on, check_timer
-
-check_timer
- dup dw ; save 'timer end time'
- psh TIMESTAMP
- inp b, dw
- ; compare 'current tme' and 'timer end time'
- ; if 'current time' greater - dispose all and set off
- ; else - set on
- cmp dw
- skp
- bra dis
- ; dispose any switch command and ignore result
- pb HAS_SWITCH
- inp b, b
- pop b
- bra set_on
- 
-dis
- pop dw
+ ; check last state and switch
+ ; if was on and has switch or was off and no switch - dispose and set off
+ ; if was on and no switch or was off and has switch - check for timer
+ cmp b
+ snz
+ bra check_for_timer
+ pop dw ; dispose timer
  bra set_off
  
-check_switch
- ; read switch value
- pb HAS_SWITCH
- inp b, b
- pop b
- ; if has switch - start timer
- ; else - set off
- snz
- bra set_off ; wait
- ; start timer and switch on
  
-start_timer
+check_for_timer
+ ; save 'timer end time' and get z-flag
+ dup dw
+ ; if no 'timer end time' - start timer and set on
+ ; else - check timer
+ snz
+ bra start_timer
+ 
+check_timer
+ ; get 'current timestamp'
  psh TIMESTAMP
  inp b, dw
- pw duration
+ ; compare it with 'timer end time'
+ ; if 'timer end time' greater - set on and continue
+ ; else - set off
+ cmp dw
+ skn
+ bra set_on
+ pop dw ; dispose 'timer end time'
+ bra set_off
+
+start_timer
+ ; get current timestamp
+ psh TIMESTAMP
+ inp b, dw
+ ; get 'duration'
+ pw timer
  ex w, dw, 1
  add dw ; calculate 'timer end time'
 

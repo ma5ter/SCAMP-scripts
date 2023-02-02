@@ -1,0 +1,102 @@
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+;timer equ 5
+;action equ 1
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; push word macro
+pw macro
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; exp instruction with parameters
+ex macro
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
+endm
+
+; mov instruction with parameters
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+; BEGIN
+ 
+ ; get switch
+ pb HAS_SWITCH
+ inp b, b
+ dup b ; save switch value
+ ; get last state
+ ; if 1 - was off
+ ; else - was on
+ psh action
+ up b, 3
+ xor b
+ ; check last state and switch
+ ; if was on and has switch or was off and no switch - dispose and set off
+ ; if was on and no switch or was off and has switch - check for timer
+ cmp b
+ snz
+ bra check_switch
+ pop b ; dispose switch value
+ pop dw ; dispose timer
+ bra set_off
+ 
+check_switch
+ ; read switch
+ pop b
+ ; if has switch - start timer
+ ; else - check for timer
+ skz
+ bra start_timer
+ 
+check_for_timer
+ ; save 'timer end time' and get z-flag
+ dup dw
+ ; if no 'timer end time' - start timer and set on
+ ; else - check timer
+ snz
+ bra set_off
+ 
+check_timer
+ ; get 'current timestamp'
+ psh TIMESTAMP
+ inp b, dw
+ ; compare it with 'timer end time'
+ ; if 'timer end time' greater - set on and continue
+ ; else - set off
+ cmp dw
+ skn
+ bra set_on
+ pop dw ; dispose 'timer end time'
+ bra set_off
+
+start_timer
+ ; get current timestamp
+ psh TIMESTAMP
+ inp b, dw
+ ; get 'duration'
+ pw timer
+ ex w, dw, 1
+ add dw ; calculate 'timer end time'
+
+set_on
+ psh action & 1
+ ret
+ 
+set_off
+ psh ~action & 1
+ ret

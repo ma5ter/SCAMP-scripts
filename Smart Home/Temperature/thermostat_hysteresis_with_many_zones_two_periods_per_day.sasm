@@ -1,0 +1,332 @@
+; common TOS sizes
+b equ 0
+w equ 1
+dw equ 2
+
+; settings
+temp equ 25 ; (param) target temperature during the specified period 
+def equ 25 ; (param) temperature at other times
+from equ 1 ; (param) start of the period
+to equ 23 ; (param) end of the period
+
+hysteresis equ 50 ; (param) allowable temperature spread
+
+zone_mask equ 3 ; (param) mask of selected zones (max 4294967295)
+time_zone equ 0 ; (param) time offset on minutes
+
+action equ 1 ; (param) relay action value
+not_inversion equ 1 ; (param) flag that output not inverted
+
+pb macro ; byte
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+pw macro ; word
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+pd macro ; dword
+ psh (($1 >> 28) & 15)
+ nib (($1 >> 24) & 15)
+ psh (($1 >> 20) & 15)
+ nib (($1 >> 16) & 15)
+ psh (($1 >> 12) & 15)
+ nib (($1 >> 8) & 15)
+ psh (($1 >> 4) & 15)
+ nib ($1 & 15)
+endm
+
+; mov instruction with parameters
+up macro
+ psh (((($1 & 3) | ($2 << 2)) >> 4) & 15)
+ nib (($1 & 3) | ($2 << 2) & 15)
+ mov
+endm
+
+; exp instruction with parameters
+ex macro
+ psh ($1 & 3)
+ nib ((($3 & 1) << 3) | ($2 & 3))
+ exp
+endm
+
+
+; BEGIN
+ ; get target temp on period increased by 50
+ ; to get rid of minus
+ pb temp + 50
+ ; get temp on other time increased by 50
+ ; to get rid of minus
+ pb def + 50
+ psh to ; get end of the period
+ psh from ; get start of the period
+ ; go calculate period times considering the selected timezone
+ pb check_timezone
+ jmp b
+ ; now we have temperature & previous switch value in TOS
+ ;swp b
+ ; get temperature value from zone
+get_temp
+ ; multiply target temperature by 10
+ ex b, w, 1
+ pw 10
+ mul w
+ 
+ pw 0 ; set 'temperature summ'
+ psh 0 ; set 'checked zone count'
+ pd zone_mask ; get 'zone mask'
+ psh 0 ; set 'current zone id'
+loop
+ ; increment current zone id
+ inc b
+ ; check if it was last zone
+ dup b
+ psh 33
+ cmp b
+ ; if was last - go calculate average temperature
+ ; else - check if need to check zone temperature
+ skp
+ bra check_mask
+ pb calc_tmp
+ jmp b
+check_mask
+ up dw, 1 ; bring 'zone mask' to top
+ dup b ; save lower byte of 'zone mask'
+ ; check if need to get next zone temperature
+ psh 1
+ and b
+ pop b
+ ; if need - go get temperature
+ ; else - shift mask
+ skz
+ bra zone_match ; 1
+    ; 0
+ 
+shift_mask
+ ; divide mask to 2 to shift mask right
+ psh 2
+ ex b, dw, 0
+ div dw
+ up b, 4 ; bring 'current zone id' to top
+ bra loop
+
+zone_match
+ ; bring 'current zone id' to top
+ up b, 4
+ dup b ; save 'current zone id'
+ ; get temperature of current zone
+ ex b, w, 0
+ pw ZONE_TEMPERATURE_BASE - 1
+ add w
+ inp w, b
+ ex b, w, 1
+ ; add 50 to it to get rid of a minus
+ pw 50
+ add w
+ up w, 8 ; bring temperatures sum
+ add w ; add temperature of current zone to summ
+ up b, 7 ; bring 'checked zone count'
+ inc b ; increment 'checked zone count'
+ up b, 3 ; get 'current zone id' to top
+ up dw, 4 ; get 'zone mask' to top
+ pb shift_mask
+ jmp b
+ 
+calc_tmp
+ pop b ; dispose 'current zone id'
+ pop dw ; dispose 'zones mask'
+ ex b, w, 0 ; expand 'checked zone count' 
+ swp w ; bring 'temperature summ' to top
+ ; mutiply it by 10
+ pw 10
+ mul w
+ swp w ; bring 'checked zone count' to top
+ ; divide 'temperature summ' to 'checked zone count'
+ ; to get average temperature
+ div w
+
+ ; implement hysteresis )))
+ pw hysteresis / 10
+ up b, 6 ; bring 'last state' to top
+ ; calculate last relay action
+ psh action
+ xor b
+ pop b
+ snz
+ bra was_on
+was_off
+ ; add hysteresis to 'average temperature'
+ add w
+ ; compare increased 'average temperature' and 'target temperature'
+ cmp w
+ ; if equal - set on
+ ; else - check if 'target temperature' is greater
+ snz
+ bra set_on
+ bra done
+was_on
+ ; if was off we should check hysteresis loop for upper rim
+ sub w
+ cmp w
+ snz
+ bra set_off
+done
+ ; if 'target temperature' is greater - set on
+ ; else - set off
+ skp
+ bra set_off
+ 
+set_on
+ psh action & not_inversion & 1
+ ret
+ 
+set_off
+ psh ~action & ~not_inversion & 1
+ ret
+
+check_timezone
+ ; calculate 'start period time' in minutes
+ ex b, w, 0
+ pw 60
+ mul w
+ up b, 2 ; bring 'end period time' to top
+ ; calculate 'end period time' in minutes
+ ex b, w, 0
+ pw 60
+ mul w
+ pw time_zone ; get selected timezone in minutes
+ dup w ; save timezone
+ pw 32768 ; set minus flag
+ and w ; calculate if timezone is negative
+ pop w ; read minus flag
+ ; if timezone is negative - get timezone with no minus sign and go calculate period time considering timezone
+ ; else - calculate period time considering timezone
+ snz
+ bra plus
+ pop w ; dispose timezone
+ pw time_zone * -1 ; get positive timezone
+ psh 2 ; set ???
+ bra loop_m
+ 
+plus
+ ; calculate period start time considering timezone
+ sub w
+ ; if result is negative - add 24 hours to get proper period start time
+ ; else - go calculate period end time
+ skn
+ bra second
+ pw 1440
+ add w
+ 
+second
+ swp w ; bring 'period end time' to top
+ pw time_zone ; get selected timezone in minutes
+ ; calculate period end time considering timezone
+ sub w
+ ; if result is negative - add 24 hours to get proper period end time
+ ; else - go check time span
+ skn
+ bra check_time_span
+ pw 1440
+ add w
+ bra check_time_span
+ 
+minus
+ pw time_zone * -1 ; get positive timezone
+ up b, 2 ; bing ??? to top
+loop_m
+ up dw, 1 ; bring 'timezone' and end or  'period time' to top
+ add w ; add 'timezone' to 'end period time'
+ dup w ; save 'offseted end period time'
+ ; substract 24 from 'offseted end period time'
+ pw 1440
+ sub w
+ ; if result is negative - dispose result 
+ ; else - dispose 'offseted end period time'
+ skn
+ swp w
+ pop w
+ up b, 2 ; bring ??? to top
+ dec b ; decrement ???
+ ; if ??? is zero - dispose it and check time span
+ ; else - find 'offseted start period time'
+ skz
+ bra minus
+ pop b
+; subroutine to return value for time span
+; on entry TOS contains:
+;   hour from
+;   hour to
+;   matched value
+;   default value
+; on return TOS byte will be the desired value
+; NOTE: due to optimisation entry point should reside within 63 first addresses 
+check_time_span
+ ; save 'start period' and 'end period' 
+ dup dw
+ ; compare 'start period' and 'end period'
+
+ cmp w
+ ; prepare check time greater or equals than 'from'
+ pb get_now
+ for b
+ swp w ; swap so that N-flag reflects the result
+ ; compare 'start period time' and 'end period time'
+ ; if 'end period time' greater - time continuous
+ ; else - time split
+ skn
+ bra time_continuous
+; time interval within connected days 
+time_split
+ ; compare 'current day time' and 'start period time'
+ cmp w
+ ; if 'current day time' greater - go to time_check_enough
+ ; else go to time_check_to to check 'end period time'
+ skn
+ bra time_check_enough
+ bra time_check_to
+; time interval within one day 
+time_continuous
+ ; compare 'current day time' and 'start period time'
+ ; if 'current day time' greater - go check 'end period time'
+ ; else - go to time_check_enough
+ cmp w
+ skp
+ bra time_check_enough
+time_check_to
+ ; get current time of day
+ pb get_now
+ for b
+ ; compare 'current day time' and 'end period time'. result in n-flag
+ cmp w
+ ; result is flag N
+ bra check_time_span_ret
+time_check_enough
+ ; dispose unused 'to' 
+ pop w
+check_time_span_ret
+ ; if 'current day time' greater - set flag to check detector
+ ; else continue
+ skp
+ swp b
+ snz
+ swp b
+ ; dispose either matched or default value
+ pop b
+ pb get_temp
+ jmp b
+
+get_now
+ pb RT_HOUR
+ inp b, w
+ pw 60
+ mul w
+ pb RT_MIN
+ inp b, w
+ add w
+ up b, 2
+ jmp b
